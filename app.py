@@ -82,11 +82,13 @@ def convert_excel(df):
 
 
 # ✅ SUMMARY GENERATION
+
 def generate_comment(results):
 
     added = []
     deleted = []
 
+    # ✅ Categorize by filename
     for file in results:
         name = file["File Name"].upper()
 
@@ -97,42 +99,48 @@ def generate_comment(results):
             deleted.append(file)
 
     if not added and not deleted:
-        return "⚠️ No files matched ADD / DELETE / REMOVE pattern in filenames."
+        return "⚠️ No files matched ADD / DELETE / REMOVE pattern."
 
+    # ✅ Domain extraction function
+    def get_domain(filename):
+        name = filename.upper()
+
+        if "EZ_ADDT_RESTR" in name:
+            return "EZ_ADDT_RESTR"
+        elif "EZ_TIME_RESTR" in name:
+            return "EZ_TIME_RESTR"
+        elif "EZ_RESTR" in name:
+            return "EZ_RESTR"
+        else:
+            return filename.replace(".csv", "")  # fallback
+
+    # ✅ Totals
     total_added = sum(file["Total Count"] for file in added)
     total_deleted = sum(file["Total Count"] for file in deleted)
 
-    comment = "MMT Updates Completed:-\n\n"
+    # ✅ Build comment
+    comment = "MMT Updates Completed:\n\n"
 
-    # ✅ TOTALS
-    comment += f"Total Added Records: {total_added}\n"
-    comment += f"Total Deleted Records: {total_deleted}\n\n"
-
-    # ✅ Added section
+    # ✅ Added Section
     if added:
-        comment += "Added Records:-\n\n"
+        comment += "Added Records:\n"
         for file in added:
-            domain = (
-                file["File Name"]
-                .replace(".csv", "")
-                .replace("_ADD", "")
-                .replace("_add", "")
-            )
-            comment += f"{file['Total Count']} records added into {domain} domain combo.\n\n"
+            domain = get_domain(file["File Name"])
+            comment += f"  • {file['Total Count']} records added into {domain} domain combo.\n"
+        comment += "\n"
 
-    # ✅ Deleted section
+    # ✅ Deleted Section
     if deleted:
-        comment += "\nDeleted Records:-\n\n"
+        comment += "Deleted Records:\n"
         for file in deleted:
-            domain = (
-                file["File Name"]
-                .replace(".csv", "")
-                .replace("_DELETE", "")
-                .replace("_delete", "")
-                .replace("_REMOVE", "")
-                .replace("_remove", "")
-            )
-            comment += f"{file['Total Count']} records deleted from {domain} domain combo.\n\n"
+            domain = get_domain(file["File Name"])
+            comment += f"  • {file['Total Count']} records deleted from {domain} domain combo.\n"
+        comment += "\n"
+
+    # ✅ Totals at END (your requirement)
+    comment += "Summary:\n"
+    comment += f"  • Total Added Records: {total_added}\n"
+    comment += f"  • Total Deleted Records: {total_deleted}\n\n"
 
     comment += "Thanks,\nDeepesh Pawar"
 

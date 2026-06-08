@@ -14,6 +14,15 @@ st.set_page_config(
 st.title("📊 CSV Folder Analyzer")
 
 # -------------------------------
+# Session State
+# -------------------------------
+if "results" not in st.session_state:
+    st.session_state.results = []
+
+if "uploader_key" not in st.session_state:
+    st.session_state.uploader_key = 0
+
+# -------------------------------
 # Sidebar Controls
 # -------------------------------
 st.sidebar.header("⚙️ Controls")
@@ -23,7 +32,6 @@ view_mode = st.sidebar.selectbox(
     ["Both", "Total Count", "Unique Count"]
 )
 
-# Header checkbox
 has_header = st.sidebar.checkbox(
     "CSV files contain header row",
     value=True
@@ -32,17 +40,12 @@ has_header = st.sidebar.checkbox(
 uploaded_files = st.sidebar.file_uploader(
     "Upload CSV Files",
     type=["csv"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    key=f"uploader_{st.session_state.uploader_key}"
 )
 
 process_clicked = st.sidebar.button("▶️ Process Files")
 clear_clicked = st.sidebar.button("🧹 Clear Results")
-
-# -------------------------------
-# Session State
-# -------------------------------
-if "results" not in st.session_state:
-    st.session_state.results = []
 
 # -------------------------------
 # Helper Functions
@@ -57,31 +60,91 @@ def process_csv(file, has_header):
         if df.empty:
             raise ValueError("File is empty")
 
-        first_col = df.iloc[:, 0].dropna()
+        col = df.iloc[:, 0].dropna()
 
-        if first_col.empty:
+        if col.empty:
             raise ValueError("First column has no valid data")
 
-        total_count = len(first_col)
-        unique_count = first_col.nunique()
-
-        return total_count, unique_count, None
+        return len(col), col.nunique(), None
 
     except Exception as e:
         return None, None, str(e)
 
 
-def convert_to_csv(df):
-    # ✅ FIXED LINE
+def convert_csv(df):
     return df.to_csv(index=False).encode("utf-8")
 
 
-def convert_to_excel(df):
+def convert_excel(df):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         df.to_excel(tmp.name, index=False)
-        data = open(tmp.name, "rb").read()
-    return data
+        return open(tmp.name, "rb").read()
 
+
+# ✅ SUMMARY GENERATION
+def generate_comment(results):
+
+    added = []
+    deleted = []
+
+    for file in results:
+        name = file["File Name"].upper()
+
+        if "ADD" in name:
+            added.append(file)
+
+        elif "DELETE" in name or "REMOVE" in name:
+            deleted.append(file)
+
+    if not added and not deleted:
+        return "⚠️ No files matched ADD / DELETE / REMOVE pattern in filenames."
+
+    total_added = sum(file["Total Count"] for file in added)
+    total_deleted = sum(file["Total Count"] for file in deleted)
+
+    comment = "MMT Updates Completed:-\n\n"
+
+    # ✅ TOTALS
+    comment += f"Total Added Records: {total_added}\n"
+    comment += f"Total Deleted Records: {total_deleted}\n\n"
+
+    # ✅ Added section
+    if added:
+        comment += "Added Records:-\n\n"
+        for file in added:
+            domain = (
+                file["File Name"]
+                .replace(".csv", "")
+                .replace("_ADD", "")
+                .replace("_add", "")
+            )
+            comment += f"{file['Total Count']} records added into {domain} domain combo.\n\n"
+
+    # ✅ Deleted section
+    if deleted:
+        comment += "\nDeleted Records:-\n\n"
+        for file in deleted:
+            domain = (
+                file["File Name"]
+                .replace(".csv", "")
+                .replace("_DELETE", "")
+                .replace("_delete", "")
+                .replace("_REMOVE", "")
+                .replace("_remove", "")
+            )
+            comment += f"{file['Total Count']} records deleted from {domain} domain combo.\n\n"
+
+    comment += "Thanks,\nDeepesh Pawar"
+
+    return comment
+
+# -------------------------------
+# Clear Button
+# -------------------------------
+if clear_clicked:
+    st.session_state.results = []
+    st.session_state.uploader_key += 1
+    st.success("✅ Results and uploaded files cleared")
 
 # -------------------------------
 # Process Files
@@ -89,7 +152,7 @@ def convert_to_excel(df):
 if process_clicked:
 
     if not uploaded_files:
-        st.error("❌ Please upload at least one CSV file.")
+        st.error("❌ Please upload at least one CSV file")
     else:
         results = []
 
@@ -115,14 +178,7 @@ if process_clicked:
             progress_bar.progress((i + 1) / total_files)
 
         st.session_state.results = results
-        status_text.text("✅ Processing completed!")
-
-# -------------------------------
-# Clear Results
-# -------------------------------
-if clear_clicked:
-    st.session_state.results = []
-    st.success("✅ Results cleared")
+        status_text.text("✅ Processing completed")
 
 # -------------------------------
 # Display Results
@@ -142,25 +198,40 @@ if st.session_state.results:
 
     st.dataframe(display_df, use_container_width=True)
 
-    # Export section
+    # ✅ SUMMARY OUTPUT
+    st.subheader("📝 Generated Summary")
+
+    comment_text = generate_comment(st.session_state.results)
+
+    st.text_area(
+        "Copy this summary",
+        value=comment_text,
+        height=300
+    )
+
+    st.download_button(
+        "Download Summary (.txt)",
+        data=comment_text,
+        file_name="summary.txt"
+    )
+
+    # ✅ EXPORT
     st.subheader("⬇️ Export Results")
 
     col1, col2 = st.columns(2)
 
     with col1:
         st.download_button(
-            label="Download CSV",
-            data=convert_to_csv(df),
-            file_name="results.csv",
-            mime="text/csv"
+            "Download CSV",
+            data=convert_csv(df),
+            file_name="results.csv"
         )
 
     with col2:
         st.download_button(
-            label="Download Excel",
-            data=convert_to_excel(df),
-            file_name="results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "Download Excel",
+            data=convert_excel(df),
+            file_name="results.xlsx"
         )
 
 else:

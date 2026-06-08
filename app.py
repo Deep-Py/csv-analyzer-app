@@ -82,26 +82,27 @@ def convert_excel(df):
 
 
 # ✅ SUMMARY GENERATION
-
+import re
 def generate_comment(results):
 
     added = []
     deleted = []
 
-    # ✅ Categorize by filename
     for file in results:
         name = file["File Name"].upper()
 
-        if "ADD" in name:
+        # ✅ Strict ADD match (not ADDT)
+        if re.search(r'(^|_)ADD($|_)', name):
             added.append(file)
 
-        elif "DELETE" in name or "REMOVE" in name:
+        # ✅ DELETE or REMOVE (safe)
+        elif re.search(r'(^|_)DELETE($|_)', name) or re.search(r'(^|_)REMOVE($|_)', name):
             deleted.append(file)
 
     if not added and not deleted:
         return "⚠️ No files matched ADD / DELETE / REMOVE pattern."
 
-    # ✅ Domain extraction function
+    # ✅ Domain Extraction
     def get_domain(filename):
         name = filename.upper()
 
@@ -112,16 +113,14 @@ def generate_comment(results):
         elif "EZ_RESTR" in name:
             return "EZ_RESTR"
         else:
-            return filename.replace(".csv", "")  # fallback
+            return filename.replace(".csv", "")
 
-    # ✅ Totals
     total_added = sum(file["Total Count"] for file in added)
     total_deleted = sum(file["Total Count"] for file in deleted)
 
-    # ✅ Build comment
+    # ✅ Build formatted output
     comment = "MMT Updates Completed:\n\n"
 
-    # ✅ Added Section
     if added:
         comment += "Added Records:\n"
         for file in added:
@@ -129,7 +128,6 @@ def generate_comment(results):
             comment += f"  • {file['Total Count']} records added into {domain} domain combo.\n"
         comment += "\n"
 
-    # ✅ Deleted Section
     if deleted:
         comment += "Deleted Records:\n"
         for file in deleted:
@@ -137,7 +135,6 @@ def generate_comment(results):
             comment += f"  • {file['Total Count']} records deleted from {domain} domain combo.\n"
         comment += "\n"
 
-    # ✅ Totals at END (your requirement)
     comment += "Summary:\n"
     comment += f"  • Total Added Records: {total_added}\n"
     comment += f"  • Total Deleted Records: {total_deleted}\n\n"
@@ -145,7 +142,6 @@ def generate_comment(results):
     comment += "Thanks,\nDeepesh Pawar"
 
     return comment
-
 # -------------------------------
 # Clear Button
 # -------------------------------

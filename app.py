@@ -1,12 +1,16 @@
 import streamlit as st
 import pandas as pd
-import os
 import tempfile
 
 # -------------------------------
-# Page Config
+# Page Configuration
 # -------------------------------
-st.set_page_config(page_title="CSV Analyzer", layout="wide")
+st.set_page_config(
+    page_title="CSV Analyzer",
+    page_icon="📊",
+    layout="wide"
+)
+
 st.title("📊 CSV Folder Analyzer")
 
 # -------------------------------
@@ -19,13 +23,17 @@ view_mode = st.sidebar.selectbox(
     ["Both", "Total Count", "Unique Count"]
 )
 
+# Header checkbox
 has_header = st.sidebar.checkbox(
     "CSV files contain header row",
     value=True
 )
 
-# ✅ NEW: Folder Path Input
-folder_path = st.sidebar.text_input("Enter folder path containing CSV files")
+uploaded_files = st.sidebar.file_uploader(
+    "Upload CSV Files",
+    type=["csv"],
+    accept_multiple_files=True
+)
 
 process_clicked = st.sidebar.button("▶️ Process Files")
 clear_clicked = st.sidebar.button("🧹 Clear Results")
@@ -39,96 +47,82 @@ if "results" not in st.session_state:
 # -------------------------------
 # Helper Functions
 # -------------------------------
-def get_csv_files(folder):
-    try:
-        return [
-            os.path.join(folder, f)
-            for f in os.listdir(folder)
-            if f.lower().endswith(".csv")
-        ]
-    except Exception:
-        return None
-
-
-def process_csv(file_path, has_header):
+def process_csv(file, has_header):
     try:
         if has_header:
-            df = pd.read_csv(file_path, header=0)
+            df = pd.read_csv(file, header=0)
         else:
-            df = pd.read_csv(file_path, header=None)
+            df = pd.read_csv(file, header=None)
 
         if df.empty:
-            raise ValueError("Empty file")
+            raise ValueError("File is empty")
 
-        col = df.iloc[:, 0].dropna()
+        first_col = df.iloc[:, 0].dropna()
 
-        if col.empty:
-            raise ValueError("No valid data in first column")
+        if first_col.empty:
+            raise ValueError("First column has no valid data")
 
-        return len(col), col.nunique(), None
+        total_count = len(first_col)
+        unique_count = first_col.nunique()
+
+        return total_count, unique_count, None
 
     except Exception as e:
         return None, None, str(e)
 
 
-def convert_csv(df):
+def convert_to_csv(df):
+    # ✅ FIXED LINE
     return df.to_csv(index=False).encode("utf-8")
 
 
-def convert_excel(df):
+def convert_to_excel(df):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
         df.to_excel(tmp.name, index=False)
-        return open(tmp.name, "rb").read()
+        data = open(tmp.name, "rb").read()
+    return data
 
-# -------------------------------
-# Clear Button (FULL RESET)
-# -------------------------------
-if clear_clicked:
-    st.session_state.results = []
-    st.success("✅ Cleared results")
 
 # -------------------------------
 # Process Files
 # -------------------------------
 if process_clicked:
 
-    if not folder_path:
-        st.error("❌ Please provide a folder path")
+    if not uploaded_files:
+        st.error("❌ Please upload at least one CSV file.")
     else:
-        files = get_csv_files(folder_path)
+        results = []
 
-        if files is None:
-            st.error("❌ Invalid folder path")
-        elif len(files) == 0:
-            st.error("❌ No CSV files found in folder")
-        else:
-            results = []
+        progress_bar = st.progress(0)
+        status_text = st.empty()
 
-            progress = st.progress(0)
-            status = st.empty()
+        total_files = len(uploaded_files)
 
-            total_files = len(files)
+        for i, file in enumerate(uploaded_files):
+            status_text.text(f"Processing {file.name} ({i+1}/{total_files})")
 
-            for i, file in enumerate(files):
+            total, unique, error = process_csv(file, has_header)
 
-                filename = os.path.basename(file)
-                status.text(f"Processing {filename} ({i+1}/{total_files})")
+            if error:
+                st.warning(f"{file.name}: {error}")
+            else:
+                results.append({
+                    "File Name": file.name,
+                    "Total Count": total,
+                    "Unique Count": unique
+                })
 
-                total, unique, error = process_csv(file, has_header)
+            progress_bar.progress((i + 1) / total_files)
 
-                if error:
-                    st.warning(f"{filename}: {error}")
-                else:
-                    results.append({
-                        "File Name": filename,
-                        "Total Count": total,
-                        "Unique Count": unique
-                    })
+        st.session_state.results = results
+        status_text.text("✅ Processing completed!")
 
-                progress.progress((i + 1) / total_files)
-
-            st.session_state.results = results
-            status.text("✅ Processing completed")
+# -------------------------------
+# Clear Results
+# -------------------------------
+if clear_clicked:
+    st.session_state.results = []
+    st.success("✅ Results cleared")
 
 # -------------------------------
 # Display Results
@@ -148,24 +142,26 @@ if st.session_state.results:
 
     st.dataframe(display_df, use_container_width=True)
 
-    # Export
-    st.subheader("⬇️ Export")
+    # Export section
+    st.subheader("⬇️ Export Results")
 
-    c1, c2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-    with c1:
+    with col1:
         st.download_button(
-            "Download CSV",
-            data=convert_csv(df),
-            file_name="results.csv"
+            label="Download CSV",
+            data=convert_to_csv(df),
+            file_name="results.csv",
+            mime="text/csv"
         )
 
-    with c2:
+    with col2:
         st.download_button(
-            "Download Excel",
-            data=convert_excel(df),
-            file_name="results.xlsx"
+            label="Download Excel",
+            data=convert_to_excel(df),
+            file_name="results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
 else:
-    st.info("👈 Enter folder path and click Process")
+    st.info("👆 Upload CSV files and click 'Process Files'")

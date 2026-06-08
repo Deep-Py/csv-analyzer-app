@@ -11,6 +11,96 @@ st.set_page_config(
     layout="wide"
 )
 
+st.title("📊 CSV Folder Analyzer")
+
+# -------------------------------
+# Sidebar Controls
+# -------------------------------
+st.sidebar.header("⚙️ Controls")
+
+view_mode = st.sidebar.selectbox(
+    "View Mode",
+    ["Both", "Total Count", "Unique Count"]
+)
+
+# ✅ NEW: Header Option
+has_header = st.sidebar.checkbox("CSV has header row", value=False)
+
+uploaded_files = st.sidebar.file_uploader(
+    "Upload CSV Files",
+    type=["csv"],
+    accept_multiple_files=True
+)
+
+process_clicked = st.sidebar.button("▶️ Process Files")
+clear_clicked = st.sidebar.button("🧹 Clear Results")
+
+# -------------------------------
+# Session State
+# -------------------------------
+if "results" not in st.session_state:
+    st.session_state.results = []
+
+# -------------------------------
+# Helper Functions
+# -------------------------------
+def process_csv(file, has_header):
+    try:
+        # ✅ Use checkbox value
+        if has_header:
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_csv(file, header=None)
+
+        if df.empty:
+            raise ValueError("File is empty")
+
+        first_col = df.iloc[:, 0].dropna()
+
+        if first_col.empty:
+            raise ValueError("First column has no valid data")
+
+        total_count = len(first_col)
+        unique_count = first_col.nunique()
+
+        return total_count, unique_count, None
+
+    except Exception as e:
+        return None, None, str(e)
+
+
+def convert_to_csv(df):
+    return df.to_csv(index=False).encode("Great idea—this makes your app **much more flexible and accurate** ✅  
+
+Below is the **complete updated `app.py`** with a **“Header Row” checkbox** added.
+
+---
+
+# ✅ ✅ What’s Added
+- ✅ Checkbox: **"CSV files contain header row"**
+- ✅ Logic adjusts automatically:
+  - Checked → `header=0`
+  - Unchecked → `header=None`
+- ✅ Works for mixed use cases
+
+---
+
+# 📄 ✅ Updated `app.py` (FULL CODE)
+
+```python
+import streamlit as st
+import pandas as pd
+import tempfile
+
+# -------------------------------
+# Page Configuration
+# -------------------------------
+st.set_page_config(
+    page_title="CSV Analyzer",
+    page_icon="📊",
+    layout="wide"
+)
+
 # -------------------------------
 # Header
 # -------------------------------
@@ -25,6 +115,12 @@ st.sidebar.header("⚙️ Controls")
 view_mode = st.sidebar.selectbox(
     "View Mode",
     ["Both", "Total Count", "Unique Count"]
+)
+
+# ✅ NEW: Header Checkbox
+has_header = st.sidebar.checkbox(
+    "CSV files contain header row",
+    value=True
 )
 
 uploaded_files = st.sidebar.file_uploader(
@@ -45,11 +141,13 @@ if "results" not in st.session_state:
 # -------------------------------
 # Helper Functions
 # -------------------------------
-def process_csv(file):
+def process_csv(file, has_header):
     try:
-        df = pd.read_csv(file)
+        if has_header:
+            df = pd.read_csv(file, header=0)
+        else:
+            df = pd.read_csv(file, header=None)
 
-        # Validation
         if df.empty:
             raise ValueError("File is empty")
 
@@ -96,7 +194,7 @@ if process_clicked:
         for i, file in enumerate(uploaded_files):
             status_text.text(f"Processing {file.name} ({i+1}/{total_files})")
 
-            total, unique, error = process_csv(file)
+            total, unique, error = process_csv(file, has_header)
 
             if error:
                 st.warning(f"{file.name}: {error}")
@@ -128,7 +226,7 @@ if st.session_state.results:
 
     st.subheader("📋 Results")
 
-    # Apply view filter
+    # View filtering
     if view_mode == "Total Count":
         display_df = df[["File Name", "Total Count"]]
     elif view_mode == "Unique Count":

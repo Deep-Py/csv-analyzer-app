@@ -252,7 +252,6 @@ import re
 REFERENCE_FILE_URL = "https://raw.githubusercontent.com/Deep-Py/csv-analyzer-app/main/reference.csv"
 
 st.set_page_config(page_title="CSV Audit Assistant", layout="wide")
-
 st.title("📊 CSV Audit Assistant")
 
 # -------------------------------
@@ -287,7 +286,7 @@ process_clicked = st.sidebar.button("▶️ Process CSV Files")
 clear_clicked = st.sidebar.button("🧹 Clear Results")
 
 # -------------------------------
-# VALIDATION SECTION
+# VALIDATION
 # -------------------------------
 st.sidebar.markdown("---")
 st.sidebar.header("🔍 Excel Validation")
@@ -301,19 +300,19 @@ excel_file = st.sidebar.file_uploader(
 validate_clicked = st.sidebar.button("✅ Validate Pairs")
 
 # -------------------------------
-# FUNCTIONS
+# HELPERS
 # -------------------------------
+def clean_value(x):
+    """✅ Fix numeric + string mismatch"""
+    return str(x).strip().upper().replace(".0", "")
+
 
 def process_csv(file, has_header):
     try:
         df = pd.read_csv(file, header=0 if has_header else None)
 
-        if df.empty:
-            raise ValueError("Empty file")
-
         col = df.iloc[:, 0].dropna()
         return len(col), col.nunique(), None
-
     except Exception as e:
         return None, None, str(e)
 
@@ -328,20 +327,18 @@ def convert_excel(df):
         return open(tmp.name, "rb").read()
 
 
-# ✅ SUMMARY FUNCTION
+# ✅ SUMMARY
 def generate_comment(results):
 
-    added = []
-    deleted = []
+    added, deleted = [], []
 
-    for file in results:
-        name = file["File Name"].upper()
+    for f in results:
+        name = f["File Name"].upper()
 
         if re.search(r'(^|_)ADD($|_)', name):
-            added.append(file)
-
+            added.append(f)
         elif re.search(r'(^|_)DELETE($|_)', name) or re.search(r'(^|_)REMOVE($|_)', name):
-            deleted.append(file)
+            deleted.append(f)
 
     def get_domain(filename):
         name = filename.upper()
@@ -351,8 +348,7 @@ def generate_comment(results):
             return "EZ_TIME_RESTR"
         elif "EZ_RESTR" in name:
             return "EZ_RESTR"
-        else:
-            return filename.replace(".csv", "")
+        return filename.replace(".csv", "")
 
     total_added = sum(f["Total Count"] for f in added)
     total_deleted = sum(f["Total Count"] for f in deleted)
@@ -379,24 +375,21 @@ def generate_comment(results):
     return comment
 
 
-# ✅ VALIDATION FUNCTION
+# ✅ VALIDATION (FIXED)
 def validate_pairs_from_github(excel_file):
-
     try:
         ref_df = pd.read_csv(REFERENCE_FILE_URL)
 
-        # (Published Value, Value)
-        ref_pairs = set(
-            zip(
-                ref_df.iloc[:, 1].astype(str).str.strip().str.upper(),
-                ref_df.iloc[:, 0].astype(str).str.strip().str.upper()
-            )
-        )
+        # ✅ Clean reference properly
+        value_ref = ref_df.iloc[:, 1].apply(clean_value)
+        pub_ref = ref_df.iloc[:, 0].apply(clean_value)
+
+        ref_pairs = set(zip(value_ref, pub_ref))
 
         df = pd.read_excel(excel_file)
 
-        val = df.iloc[:, 3].astype(str).str.strip().str.upper()
-        pub = df.iloc[:, 4].astype(str).str.strip().str.upper()
+        val = df.iloc[:, 3].apply(clean_value)
+        pub = df.iloc[:, 4].apply(clean_value)
 
         df["Value"] = val
         df["Published Value"] = pub
@@ -433,7 +426,6 @@ if process_clicked:
         st.error("Upload CSV files")
     else:
         results = []
-
         progress = st.progress(0)
         total = len(uploaded_files)
 
@@ -455,7 +447,7 @@ if process_clicked:
         st.session_state.results = results
 
 # -------------------------------
-# DISPLAY CSV RESULTS
+# DISPLAY CSV
 # -------------------------------
 if st.session_state.results:
 
@@ -470,15 +462,12 @@ if st.session_state.results:
 
     st.dataframe(df, use_container_width=True)
 
-    # ✅ SUMMARY OUTPUT
     st.subheader("📝 Summary")
 
-    comment = generate_comment(st.session_state.results)
-
-    st.text_area("Copy Summary", comment, height=300)
+    st.text_area("Copy Summary", generate_comment(st.session_state.results), height=300)
 
 # -------------------------------
-# VALIDATION DISPLAY
+# DISPLAY VALIDATION
 # -------------------------------
 if validate_clicked:
 
@@ -505,3 +494,4 @@ if validate_clicked:
 
             st.subheader("🔹 Unique Pairs")
             st.dataframe(unique_pairs, use_container_width=True)
+

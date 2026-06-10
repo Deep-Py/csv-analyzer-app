@@ -159,7 +159,7 @@ def validate_pairs(file):
 
     unique_pairs = df[["Value", "Published Value"]].drop_duplicates()
 
-    return df, fixed_df, unique_pairs, valid, invalid, spelling, mapping
+    return df, fixed_df, unique_pairs, valid, invalid, spelling, mapping, vehicle_map
 
 
 # ===============================
@@ -201,54 +201,97 @@ with tab2:
 
     excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-    if excel_file:
-        df, fixed_df, unique_pairs, valid, invalid, spelling, mapping = validate_pairs(excel_file)
+    
+if excel_file:
 
-        # ✅ Toggle FIXED (100% working)
-        show_invalid = st.toggle(f"Show Invalid Records ({invalid})")
+    df, fixed_df, unique_pairs, valid, invalid, spelling, mapping, vehicle_map = validate_pairs(excel_file)
 
-        display = df.copy()
+    # ✅ Toggle
+    show_invalid = st.toggle(f"Show Invalid Records ({invalid})")
 
-        if show_invalid:
-            display = display[display["Is_Invalid"] == True]
+    display = df.copy()
 
-        display = display.reset_index(drop=True)
+    if show_invalid:
+        display = display[display["Is_Invalid"] == True]
 
-        if display.empty:
-            st.warning("No data to display")
-        else:
-            st.dataframe(display, use_container_width=True)
+    display = display.reset_index(drop=True)
 
-        # ✅ Summary
-        st.subheader("Summary")
+    # ✅ TABLE
+    st.subheader("Validation Results")
 
-        col1, col2 = st.columns(2)
-        col1.metric("Valid", valid)
-        col1.metric("Invalid", invalid)
+    def highlight(row):
+        if row["Is_Invalid"]:
+            return ["background-color: #ffe6e6"] * len(row)
+        return [""] * len(row)
 
-        col2.metric("Spelling Errors", spelling)
-        col2.metric("Mapping Errors", mapping)
+    st.dataframe(display.style.apply(highlight, axis=1), use_container_width=True)
 
-        # ✅ Export
-        error_df = df[df["Is_Invalid"] == True]
+    # ✅ SUMMARY
+    st.subheader("Summary")
 
-        st.download_button(
-            "Download Errors",
-            error_df.to_csv(index=False),
-            "errors.csv"
-        )
+    col1, col2 = st.columns(2)
 
+    col1.metric("Valid", valid)
+    col1.metric("Invalid", invalid)
+
+    col2.metric("Spelling Errors", spelling)
+    col2.metric("Mapping Errors", mapping)
+
+    # ✅ AUTO FIX BUTTON
+    st.subheader("🛠️ Auto Fix")
+
+    if st.button("Apply Auto Fix"):
+
+        # ✅ Start from ORIGINAL file (VERY IMPORTANT)
+        original_df = pd.read_excel(excel_file, dtype=str)
+
+        corrected_df = original_df.copy()
+
+        for i in range(len(df)):
+
+            if df.loc[i, "Reason"] == "Spelling Error":
+
+                suggestion = df.loc[i, "Suggestion"]
+
+                if suggestion != "No suggestion":
+                    corrected_df.iloc[i, 3] = suggestion
+
+            elif "Mapping Error" in df.loc[i, "Reason"]:
+
+                val = df.loc[i, "Value"]
+
+                # ✅ Get correct ID from reference
+                for v, ids in vehicle_map.items():
+                    if v == val:
+                        corrected_df.iloc[i, 4] = list(ids)[0]
+
+        # ✅ Save clean file (no extra columns)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-            fixed_df.to_excel(tmp.name, index=False)
-            data = open(tmp.name, "rb").read()
+            corrected_df.to_excel(tmp.name, index=False)
+            clean_file = open(tmp.name, "rb").read()
+
+        st.success("✅ Auto Fix Applied")
 
         st.download_button(
-            "Download Corrected File",
-            data,
-            "corrected.xlsx"
+            "Download Corrected Clean File",
+            clean_file,
+            "corrected_clean.xlsx"
         )
 
-        st.subheader("Unique Pairs")
-        st.dataframe(unique_pairs, use_container_width=True)
+    # ✅ EXPORT ONLY ERRORS
+    st.subheader("⬇️ Export Errors")
+
+    error_df = df[df["Is_Invalid"] == True]
+
+    st.download_button(
+        "Download Errors",
+        error_df.to_csv(index=False),
+        "errors.csv"
+    )
+
+    # ✅ UNIQUE PAIRS
+    st.subheader("Unique Pairs")
+    st.dataframe(unique_pairs, use_container_width=True)
+
 
 

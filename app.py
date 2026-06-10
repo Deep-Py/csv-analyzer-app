@@ -257,11 +257,17 @@ if validate_clicked and excel_file:
         st.error(err)
     else:
         st.subheader("✅ Validation Results")
-
+        
         show_invalid_only = st.checkbox("Show Only Invalid Records")
-
+        
         if show_invalid_only:
-            st.dataframe(df_val[df_val["Status"] == "❌ Invalid"], use_container_width=True)
+            display_df = df_val[df_val["Status"].str.contains("Invalid", na=False)]
+        
+            if display_df.empty:
+                st.warning("⚠️ No invalid records found")
+            else:
+                st.dataframe(display_df, use_container_width=True)
+        
         else:
             st.dataframe(df_val, use_container_width=True)
 

@@ -9,7 +9,6 @@ from difflib import get_close_matches
 # -------------------------------
 REFERENCE_FILE_URL = "https://raw.githubusercontent.com/Deep-Py/csv-analyzer-app/main/reference.csv"
 
-
 st.set_page_config(page_title="CSV Audit Assistant", layout="wide")
 st.title("📊 CSV Audit Assistant")
 
@@ -83,6 +82,20 @@ def clean_value(x):
     return x
 
 
+def get_suggestion(value, reference_list):
+    # Fuzzy match
+    matches = get_close_matches(value, reference_list, n=1, cutoff=0.5)
+    if matches:
+        return matches[0]
+
+    # Partial match
+    for ref in reference_list:
+        if value in ref or ref.startswith(value):
+            return ref
+
+    return "No suggestion"
+
+
 def process_csv(file, has_header):
     try:
         df = pd.read_csv(file, header=0 if has_header else None)
@@ -92,17 +105,9 @@ def process_csv(file, has_header):
         return None, None, str(e)
 
 
-def convert_csv(df):
-    return df.to_csv(index=False).encode("utf-8")
-
-
-def convert_excel(df):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        df.to_excel(tmp.name, index=False)
-        return open(tmp.name, "rb").read()
-
-
-# ✅ SUMMARY FUNCTION
+# -------------------------------
+# SUMMARY FUNCTION
+# -------------------------------
 def generate_comment(results):
 
     added, deleted = [], []
@@ -150,23 +155,15 @@ def generate_comment(results):
     return comment
 
 
-# ✅ FINAL VALIDATION FUNCTION (CORRECT LOGIC)
+# -------------------------------
+# VALIDATION FUNCTION
+# -------------------------------
 def validate_pairs_from_github(excel_file):
 
     try:
         ref_df = pd.read_csv(REFERENCE_FILE_URL, dtype=str)
 
-        def clean_value(x):
-            if pd.isna(x):
-                return ""
-            x = str(x).strip().upper().replace("\xa0", "")
-            if x.endswith(".0"):
-                x = x[:-2]
-            if x.isdigit():
-                x = str(int(x))
-            return x
-
-        # ✅ Reference mapping
+        # ✅ Correct mapping
         ref_df["Vehicle"] = ref_df.iloc[:, 0].apply(clean_value)
         ref_df["Vehicle_ID"] = ref_df.iloc[:, 1].apply(clean_value)
 
@@ -178,56 +175,47 @@ def validate_pairs_from_github(excel_file):
 
         all_vehicles = list(vehicle_to_id_map.keys())
 
-        # ✅ Excel
         df = pd.read_excel(excel_file, dtype=str)
 
         df["Value"] = df.iloc[:, 3].apply(clean_value)
         df["Published Value"] = df.iloc[:, 4].apply(clean_value)
 
-        status_list = []
-        reason_list = []
-        suggestion_list = []
+        status, reason, suggestion = [], [], []
 
         for val, pub in zip(df["Value"], df["Published Value"]):
 
             if val not in vehicle_to_id_map:
-                # ✅ Suggest closest match
-                suggestion = get_close_matches(val, all_vehicles, n=1)
-                suggestion_text = suggestion[0] if suggestion else "No suggestion"
-
-                status_list.append("❌ Invalid")
-                reason_list.append("Spelling Error")
-                suggestion_list.append(suggestion_text)
+                status.append("❌ Invalid")
+                reason.append("Spelling Error")
+                suggestion.append(get_suggestion(val, all_vehicles))
 
             elif pub not in vehicle_to_id_map[val]:
                 expected = ", ".join(vehicle_to_id_map[val])
-                status_list.append("❌ Invalid")
-                reason_list.append(f"Mapping Mismatch (Expected ID: {expected})")
-                suggestion_list.append(val)
+                status.append("❌ Invalid")
+                reason.append(f"Mapping Mismatch (Expected ID: {expected})")
+                suggestion.append(val)
 
             else:
-                status_list.append("✅ Valid")
-                reason_list.append("Correct Mapping")
-                suggestion_list.append("")
+                status.append("✅ Valid")
+                reason.append("Correct Mapping")
+                suggestion.append("")
 
-        df["Status"] = status_list
-        df["Reason"] = reason_list
-        df["Suggestion"] = suggestion_list
+        df["Status"] = status
+        df["Reason"] = reason
+        df["Suggestion"] = suggestion
 
         unique_pairs = df[["Value", "Published Value"]].drop_duplicates()
 
         valid_count = (df["Status"] == "✅ Valid").sum()
         invalid_count = (df["Status"] == "❌ Invalid").sum()
 
-        # Error breakdown
-        spelling_errors = (df["Reason"] == "Spelling Error").sum()
-        mapping_errors = df["Reason"].str.contains("Mapping Mismatch").sum()
+        spelling_err = (df["Reason"] == "Spelling Error").sum()
+        mapping_err = df["Reason"].str.contains("Mapping Mismatch").sum()
 
-        return df, unique_pairs, valid_count, invalid_count, spelling_errors, mapping_errors, None
+        return df, unique_pairs, valid_count, invalid_count, spelling_err, mapping_err, None
 
     except Exception as e:
         return None, None, None, None, None, None, str(e)
-
 
 
 # -------------------------------
@@ -242,132 +230,67 @@ if clear_clicked:
 # PROCESS CSV
 # -------------------------------
 if process_clicked:
-
-    if not uploaded_files:
-        st.error("Upload CSV files")
-    else:
+    if uploaded_files:
         results = []
-        progress = st.progress(0)
-        total = len(uploaded_files)
-
-        for i, file in enumerate(uploaded_files):
-
-            total_c, unique_c, err = process_csv(file, has_header)
-
+        for f in uploaded_files:
+            total, unique, err = process_csv(f, has_header)
             if not err:
-                results.append({
-                    "File Name": file.name,
-                    "Total Count": total_c,
-                    "Unique Count": unique_c
-                })
-            else:
-                st.warning(f"{file.name}: {err}")
-
-            progress.progress((i + 1) / total)
-
+                results.append({"File Name": f.name, "Total Count": total, "Unique Count": unique})
         st.session_state.results = results
 
 # -------------------------------
 # DISPLAY CSV RESULTS
 # -------------------------------
 if st.session_state.results:
-
     df = pd.DataFrame(st.session_state.results)
-
-    st.subheader("📋 CSV Results")
-
-    if view_mode == "Total Count":
-        df = df[["File Name", "Total Count"]]
-    elif view_mode == "Unique Count":
-        df = df[["File Name", "Unique Count"]]
-
     st.dataframe(df, use_container_width=True)
-
-    st.subheader("📝 Summary")
-
-    st.text_area("Copy Summary", generate_comment(st.session_state.results), height=300)
-
+    st.text_area("Summary", generate_comment(st.session_state.results), height=250)
 
 # -------------------------------
 # VALIDATION OUTPUT
 # -------------------------------
-if validate_clicked:
+if validate_clicked and excel_file:
 
-    if not excel_file:
-        st.error("Upload Excel file")
+    df_val, unique_pairs, valid, invalid, spelling_err, mapping_err, err = validate_pairs_from_github(excel_file)
+
+    if err:
+        st.error(err)
     else:
-        df_val, unique_pairs, valid, invalid, spelling_err, mapping_err, err = validate_pairs_from_github(excel_file)
+        st.subheader("✅ Validation Results")
 
-        if err:
-            st.error(err)
+        show_invalid_only = st.checkbox("Show Only Invalid Records")
+
+        if show_invalid_only:
+            st.dataframe(df_val[df_val["Status"] == "❌ Invalid"], use_container_width=True)
         else:
-            st.subheader("✅ Validation Results")
+            st.dataframe(df_val, use_container_width=True)
 
-            # ✅ Toggle
-            show_invalid_only = st.checkbox("Show Only Invalid Records")
+        st.subheader("📊 Summary")
+        st.write(f"✅ Valid: {valid}")
+        st.write(f"❌ Invalid: {invalid}")
+        st.write(f"Spelling Errors: {spelling_err}")
+        st.write(f"Mapping Errors: {mapping_err}")
 
-            display_df = df_val[df_val["Status"] == "❌ Invalid"] if show_invalid_only else df_val
+        # Charts
+        st.bar_chart({"Valid": valid, "Invalid": invalid})
+        st.bar_chart({"Spelling": spelling_err, "Mapping": mapping_err})
 
-            # ✅ Highlight
-            def highlight(row):
-                return ['background-color: #ffcccc' if row.Status == "❌ Invalid" else '' for _ in row]
+        # Export errors
+        error_df = df_val[df_val["Status"] == "❌ Invalid"]
 
-            st.dataframe(display_df.style.apply(highlight, axis=1), use_container_width=True)
+        st.download_button(
+            "Download Errors CSV",
+            error_df.to_csv(index=False).encode("utf-8"),
+            "errors.csv"
+        )
 
-            # ✅ Summary
-            st.subheader("📊 Summary")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            error_df.to_excel(tmp.name, index=False)
+            data = open(tmp.name, "rb").read()
 
-            col1, col2 = st.columns(2)
+        st.download_button("Download Errors Excel", data, "errors.xlsx")
 
-            with col1:
-                st.metric("✅ Valid", valid)
-                st.metric("❌ Invalid", invalid)
+        st.subheader("🔹 Unique Pairs")
+        st.dataframe(unique_pairs)
 
-            with col2:
-                st.metric("Spelling Errors", spelling_err)
-                st.metric("Mapping Errors", mapping_err)
-
-            # ✅ Charts
-            chart_data = pd.DataFrame({
-                "Type": ["Valid", "Invalid"],
-                "Count": [valid, invalid]
-            })
-
-            st.bar_chart(chart_data.set_index("Type"))
-
-            error_data = pd.DataFrame({
-                "Type": ["Spelling", "Mapping"],
-                "Count": [spelling_err, mapping_err]
-            })
-
-            st.bar_chart(error_data.set_index("Type"))
-
-            # ✅ Export only invalid
-            invalid_df = df_val[df_val["Status"] == "❌ Invalid"]
-
-            st.subheader("⬇️ Export Errors")
-
-            c1, c2 = st.columns(2)
-
-            with c1:
-                st.download_button(
-                    "Download Errors CSV",
-                    invalid_df.to_csv(index=False).encode("utf-8"),
-                    "errors.csv"
-                )
-
-            with c2:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-                    invalid_df.to_excel(tmp.name, index=False)
-                    data = open(tmp.name, "rb").read()
-
-                st.download_button(
-                    "Download Errors Excel",
-                    data,
-                    "errors.xlsx"
-                )
-
-            # ✅ Unique pairs
-            st.subheader("🔹 Unique Pairs")
-            st.dataframe(unique_pairs, use_container_width=True)
 

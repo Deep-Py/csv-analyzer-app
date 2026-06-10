@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import tempfile
 import re
-from io import BytesIO
 from difflib import get_close_matches
+from io import BytesIO
 
 # ===============================
 # CONFIG
@@ -25,8 +25,11 @@ if "corrected_pairs" not in st.session_state:
 if "original_df" not in st.session_state:
     st.session_state.original_df = None
 
+if "corrected_file" not in st.session_state:
+    st.session_state.corrected_file = None
+
 # ===============================
-# CACHED DATA
+# CACHE
 # ===============================
 @st.cache_data
 def load_reference():
@@ -113,7 +116,6 @@ def process_csv(file):
     col = df.iloc[:, 0].dropna()
     return len(col), col.nunique()
 
-
 def generate_summary(results):
     text = "MMT Updates Completed:\n\n"
     for f in results:
@@ -135,7 +137,6 @@ with tab1:
 
     if files:
         results = []
-
         for f in files:
             total, unique = process_csv(f)
             results.append({
@@ -145,10 +146,8 @@ with tab1:
             })
 
         df_res = pd.DataFrame(results)
-
         st.dataframe(df_res)
         st.text_area("Summary", generate_summary(results), height=200)
-
 
 # ===============================
 # VALIDATION TAB
@@ -163,25 +162,24 @@ with tab2:
 
         df, unique_pairs, vehicle_map = validate_pairs(file_bytes)
 
-        # ✅ cache original once
+        # ✅ Cache original once
         if st.session_state.original_df is None:
-            st.session_state.original_df = pd.read_excel(excel_file, dtype=str)
+            st.session_state.original_df = pd.read_excel(BytesIO(file_bytes), dtype=str)
 
         invalid_count = df["Is_Invalid"].sum()
 
-        # ✅ Toggle
         show_invalid = st.toggle(f"Show Invalid ({invalid_count})")
 
         display = df[df["Is_Invalid"]] if show_invalid else df
 
-        # ✅ Highlight rows
+        # ✅ Highlight
         def highlight(row):
             return ["background-color: #ffe6e6"] * len(row) if row["Is_Invalid"] else [""] * len(row)
 
         st.dataframe(display.style.apply(highlight, axis=1), use_container_width=True)
 
         # ===============================
-        # UNIQUE PAIRS (SAME POSITION)
+        # UNIQUE PAIRS
         # ===============================
         st.subheader("Unique Pairs")
 
@@ -191,17 +189,15 @@ with tab2:
             def highlight_pairs(row):
                 return ["background-color: #ffe6e6"] * len(row) if row["Is_Invalid"] else [""] * len(row)
 
-            st.dataframe(unique_pairs.style.apply(highlight_pairs, axis=1),
-                         use_container_width=True)
+            st.dataframe(unique_pairs.style.apply(highlight_pairs, axis=1), use_container_width=True)
 
         # ===============================
-        # AUTO FIX + RESET
+        # AUTO FIX
         # ===============================
         st.subheader("Auto Fix")
 
         col1, col2 = st.columns(2)
 
-        # ✅ AUTO FIX
         with col1:
             if st.button("Apply Auto Fix"):
 
@@ -209,19 +205,16 @@ with tab2:
 
                 for i in range(len(df)):
 
-                    # Fix spelling
                     if df.loc[i, "Reason"] == "Spelling Error":
                         sugg = df.loc[i, "Suggestion"]
                         if sugg != "No suggestion":
                             corrected_df.iloc[i, 3] = sugg
 
-                    # Fix mapping
                     elif "Mapping Error" in df.loc[i, "Reason"]:
                         val = df.loc[i, "Value"]
                         if val in vehicle_map:
                             corrected_df.iloc[i, 4] = list(vehicle_map[val])[0]
 
-                # ✅ recompute unique pairs after fix
                 corrected_pairs = pd.DataFrame({
                     "Value": corrected_df.iloc[:, 3],
                     "Published Value": corrected_df.iloc[:, 4]
@@ -229,27 +222,51 @@ with tab2:
 
                 st.session_state.auto_fixed = True
                 st.session_state.corrected_pairs = corrected_pairs
+                st.session_state.corrected_file = corrected_df
 
-                filename = excel_file.name.replace(".xlsx", "_corrected.xlsx")
-
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-                    corrected_df.to_excel(tmp.name, index=False)
-                    clean_file = open(tmp.name, "rb").read()
-
-                st.download_button("Download Corrected File", clean_file, filename)
-
+                st.success("✅ Auto Fix Applied")
                 st.rerun()
 
-        # ✅ RESET
+        # ===============================
+        # RESET
+        # ===============================
         with col2:
             if st.session_state.auto_fixed:
                 if st.button("Reset / Undo Fix"):
                     st.session_state.auto_fixed = False
                     st.session_state.corrected_pairs = None
+                    st.session_state.corrected_file = None
                     st.rerun()
 
         # ===============================
-        # EXPORT ERRORS
+        # DOWNLOAD + INFO
+        # ===============================
+        if st.session_state.auto_fixed and st.session_state.corrected_file is not None:
+
+            filename = excel_file.name.replace(".xlsx", "_corrected.xlsx")
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                st.session_state.corrected_file.to_excel(tmp.name, index=False)
+                clean_file = open(tmp.name, "rb").read()
+
+            # ✅ Metrics
+            row_count = len(st.session_state.corrected_file)
+            file_size_kb = round(len(clean_file) / 1024, 2)
+
+            st.success("✅ Corrected file ready for download")
+
+            col1, col2 = st.columns(2)
+            col1.metric("Rows", row_count)
+            col2.metric("File Size (KB)", file_size_kb)
+
+            st.download_button(
+                "Download Corrected File",
+                clean_file,
+                filename
+            )
+
+        # ===============================
+        # DOWNLOAD ERRORS
         # ===============================
         error_df = df[df["Is_Invalid"]]
 

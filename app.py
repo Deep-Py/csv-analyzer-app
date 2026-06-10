@@ -1,54 +1,25 @@
 import streamlit as st
 import pandas as pd
 import tempfile
+import re
 from difflib import get_close_matches
 
-# -------------------------------
+# ===============================
 # CONFIG
-# -------------------------------
+# ===============================
 REFERENCE_FILE_URL = "https://raw.githubusercontent.com/Deep-Py/csv-analyzer-app/main/reference.csv"
-
 
 st.set_page_config(page_title="CSV Audit Assistant", layout="wide")
 
-# -------------------------------
-# UI STYLING (Website Look)
-# -------------------------------
-st.markdown("""
-<style>
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-
-.main {
-    background-color: #f5f7fb;
-}
-
-h1 {
-    text-align: center;
-    color: #1f3c88;
-    font-weight: 700;
-}
-
-.card {
-    background-color: white;
-    padding: 20px;
-    border-radius: 12px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-    margin-bottom: 20px;
-}
-</style>
-""", unsafe_allow_html=True)
-
 st.title("CSV Audit Assistant")
 
-# -------------------------------
+# ===============================
 # HELPERS
-# -------------------------------
+# ===============================
 def clean_value(x):
     if pd.isna(x):
         return ""
-    x = str(x).strip().upper().replace("\xa0", "")
+    x = str(x).strip().upper()
     if x.endswith(".0"):
         x = x[:-2]
     if x.isdigit():
@@ -67,9 +38,62 @@ def get_suggestion(value, reference_list):
 
     return "No suggestion"
 
-# -------------------------------
-# VALIDATION LOGIC
-# -------------------------------
+
+# ===============================
+# CSV ANALYZER
+# ===============================
+def process_csv(file):
+    df = pd.read_csv(file)
+    col = df.iloc[:, 0].dropna()
+    return len(col), col.nunique()
+
+
+def generate_summary(results):
+    added, deleted = [], []
+
+    for f in results:
+        name = f["File Name"].upper()
+
+        if re.search(r'(^|_)ADD($|_)', name):
+            added.append(f)
+        elif re.search(r'(^|_)DELETE($|_)|(^|_)REMOVE($|_)', name):
+            deleted.append(f)
+
+    def get_domain(name):
+        name = name.upper()
+        if "EZ_ADDT_RESTR" in name:
+            return "EZ_ADDT_RESTR"
+        elif "EZ_TIME_RESTR" in name:
+            return "EZ_TIME_RESTR"
+        elif "EZ_RESTR" in name:
+            return "EZ_RESTR"
+        return name
+
+    total_added = sum(x["Total"] for x in added)
+    total_deleted = sum(x["Total"] for x in deleted)
+
+    text = "MMT Updates Completed:\n\n"
+
+    if added:
+        text += "Added Records:\n"
+        for f in added:
+            text += f"  • {f['Total']} records added into {get_domain(f['File Name'])}\n"
+        text += "\n"
+
+    if deleted:
+        text += "Deleted Records:\n"
+        for f in deleted:
+            text += f"  • {f['Total']} records deleted from {get_domain(f['File Name'])}\n"
+        text += "\n"
+
+    text += f"Summary:\n  • Total Added: {total_added}\n  • Total Deleted: {total_deleted}\n\nThanks,\nDeepesh Pawar"
+
+    return text
+
+
+# ===============================
+# VALIDATION ENGINE
+# ===============================
 def validate_pairs(file):
 
     ref = pd.read_csv(REFERENCE_FILE_URL, dtype=str)
@@ -88,7 +112,10 @@ def validate_pairs(file):
     df["Value"] = df.iloc[:, 3].apply(clean_value)
     df["Published Value"] = df.iloc[:, 4].apply(clean_value)
 
-    status, reason, suggestion, is_invalid = [], [], [], []
+    status = []
+    reason = []
+    suggestion = []
+    is_invalid = []
 
     for val, pub in zip(df["Value"], df["Published Value"]):
 
@@ -98,31 +125,31 @@ def validate_pairs(file):
             suggestion.append(get_suggestion(val, vehicles))
             is_invalid.append(True)
 
-        elif pub not in vehicle_map[val]:
-            expected = ", ".join(vehicle_map[val])
-            status.append("INVALID")
-            reason.append(f"Mapping Error (Expected ID: {expected})")
-            suggestion.append(val)
-            is_invalid.append(True)
-
         else:
-            status.append("VALID")
-            reason.append("Correct Mapping")
-            suggestion.append("")
-            is_invalid.append(False)
+            expected = vehicle_map[val]
+
+            if pub not in expected:
+                status.append("INVALID")
+                reason.append(f"Mapping Error (Expected: {', '.join(expected)})")
+                suggestion.append(val)
+                is_invalid.append(True)
+            else:
+                status.append("VALID")
+                reason.append("Correct Mapping")
+                suggestion.append("")
+                is_invalid.append(False)
 
     df["Status"] = status
     df["Reason"] = reason
     df["Suggestion"] = suggestion
     df["Is_Invalid"] = is_invalid
 
-    # Auto-fix (spelling only)
-    fixed = df.copy()
-    for i in fixed.index:
-        if fixed.loc[i, "Reason"] == "Spelling Error":
-            sugg = fixed.loc[i, "Suggestion"]
-            if sugg != "No suggestion":
-                fixed.loc[i, "Value"] = sugg
+    # Auto fix (only spelling)
+    fixed_df = df.copy()
+    for i in fixed_df.index:
+        if fixed_df.loc[i, "Reason"] == "Spelling Error":
+            if fixed_df.loc[i, "Suggestion"] != "No suggestion":
+                fixed_df.loc[i, "Value"] = fixed_df.loc[i, "Suggestion"]
 
     # Metrics
     valid = (df["Status"] == "VALID").sum()
@@ -132,112 +159,96 @@ def validate_pairs(file):
 
     unique_pairs = df[["Value", "Published Value"]].drop_duplicates()
 
-    return df, fixed, unique_pairs, valid, invalid, spelling, mapping
+    return df, fixed_df, unique_pairs, valid, invalid, spelling, mapping
 
-# -------------------------------
-# UI INPUT
-# -------------------------------
-st.markdown('<div class="card">', unsafe_allow_html=True)
 
-col1, col2 = st.columns([3,1])
+# ===============================
+# TABS
+# ===============================
+tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
 
-with col1:
+# ===============================
+# TAB 1 → CSV ANALYZER
+# ===============================
+with tab1:
+
+    files = st.file_uploader("Upload CSV files", type=["csv"], accept_multiple_files=True)
+
+    if files:
+        results = []
+
+        for f in files:
+            total, unique = process_csv(f)
+
+            results.append({
+                "File Name": f.name,
+                "Total": total,
+                "Unique": unique
+            })
+
+        df = pd.DataFrame(results)
+
+        st.subheader("Results")
+        st.dataframe(df, use_container_width=True)
+
+        st.subheader("Generated Summary")
+        st.text_area("", generate_summary(results), height=250)
+
+# ===============================
+# TAB 2 → VALIDATION
+# ===============================
+with tab2:
+
     excel_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-with col2:
-    validate = st.button("Validate")
+    if excel_file:
+        df, fixed_df, unique_pairs, valid, invalid, spelling, mapping = validate_pairs(excel_file)
 
-st.markdown('</div>', unsafe_allow_html=True)
+        # ✅ Toggle FIXED (100% working)
+        show_invalid = st.toggle(f"Show Invalid Records ({invalid})")
 
-# -------------------------------
-# PROCESS
-# -------------------------------
-if validate and excel_file:
+        display = df.copy()
 
-    df, fixed_df, unique_pairs, valid, invalid, spelling, mapping = validate_pairs(excel_file)
+        if show_invalid:
+            display = display[display["Is_Invalid"] == True]
 
-    # ✅ FILTER CARD
-    st.markdown('<div class="card">', unsafe_allow_html=True)
+        display = display.reset_index(drop=True)
 
-    show_invalid = st.toggle(f"Show Invalid Records ({invalid})")
+        if display.empty:
+            st.warning("No data to display")
+        else:
+            st.dataframe(display, use_container_width=True)
 
-    filter_option = st.selectbox(
-        "Filter",
-        ["All Records", "Spelling Errors", "Mapping Errors"]
-    )
+        # ✅ Summary
+        st.subheader("Summary")
 
-    display = df.copy()
+        col1, col2 = st.columns(2)
+        col1.metric("Valid", valid)
+        col1.metric("Invalid", invalid)
 
-    if show_invalid:
-        display = display[display["Is_Invalid"]]
+        col2.metric("Spelling Errors", spelling)
+        col2.metric("Mapping Errors", mapping)
 
-    if filter_option == "Spelling Errors":
-        display = display[display["Reason"] == "Spelling Error"]
+        # ✅ Export
+        error_df = df[df["Is_Invalid"] == True]
 
-    elif filter_option == "Mapping Errors":
-        display = display[display["Reason"].str.contains("Mapping Error")]
+        st.download_button(
+            "Download Errors",
+            error_df.to_csv(index=False),
+            "errors.csv"
+        )
 
-    st.markdown('</div>', unsafe_allow_html=True)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            fixed_df.to_excel(tmp.name, index=False)
+            data = open(tmp.name, "rb").read()
 
-    # ✅ TABLE CARD
-    st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.download_button(
+            "Download Corrected File",
+            data,
+            "corrected.xlsx"
+        )
 
-    def highlight(row):
-        return ["background-color: #ffe6e6"] * len(row) if row["Is_Invalid"] else [""] * len(row)
-
-    if display.empty:
-        st.warning("No records found")
-    else:
-        st.dataframe(display.style.apply(highlight, axis=1), use_container_width=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ✅ SUMMARY CARD
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
-    st.subheader("Summary")
-
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.metric("Valid", valid)
-        st.metric("Invalid", invalid)
-
-    with c2:
-        st.metric("Spelling Errors", spelling)
-        st.metric("Mapping Errors", mapping)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ✅ EXPORT CARD
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
-    error_df = df[df["Is_Invalid"]]
-
-    st.download_button(
-        "Download Errors CSV",
-        error_df.to_csv(index=False).encode("utf-8"),
-        "errors.csv"
-    )
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-        fixed_df.to_excel(tmp.name, index=False)
-        file_data = open(tmp.name, "rb").read()
-
-    st.download_button(
-        "Download Corrected File",
-        file_data,
-        "corrected.xlsx"
-    )
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ✅ UNIQUE PAIRS
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-
-    st.subheader("Unique Pairs")
-    st.dataframe(unique_pairs, use_container_width=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.subheader("Unique Pairs")
+        st.dataframe(unique_pairs, use_container_width=True)
 
 

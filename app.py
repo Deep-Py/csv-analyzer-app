@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import tempfile
 import re
+from difflib import get_close_matches
 
 # -------------------------------
 # CONFIG
@@ -155,7 +156,17 @@ def validate_pairs_from_github(excel_file):
     try:
         ref_df = pd.read_csv(REFERENCE_FILE_URL, dtype=str)
 
-        # ✅ Correct mapping
+        def clean_value(x):
+            if pd.isna(x):
+                return ""
+            x = str(x).strip().upper().replace("\xa0", "")
+            if x.endswith(".0"):
+                x = x[:-2]
+            if x.isdigit():
+                x = str(int(x))
+            return x
+
+        # ✅ Reference mapping
         ref_df["Vehicle"] = ref_df.iloc[:, 0].apply(clean_value)
         ref_df["Vehicle_ID"] = ref_df.iloc[:, 1].apply(clean_value)
 
@@ -165,41 +176,58 @@ def validate_pairs_from_github(excel_file):
                 vehicle_to_id_map[v] = set()
             vehicle_to_id_map[v].add(vid)
 
+        all_vehicles = list(vehicle_to_id_map.keys())
+
+        # ✅ Excel
         df = pd.read_excel(excel_file, dtype=str)
 
-        df["Value"] = df.iloc[:, 3].apply(clean_value)          # Vehicle
-        df["Published Value"] = df.iloc[:, 4].apply(clean_value)  # ID
+        df["Value"] = df.iloc[:, 3].apply(clean_value)
+        df["Published Value"] = df.iloc[:, 4].apply(clean_value)
 
         status_list = []
         reason_list = []
+        suggestion_list = []
 
         for val, pub in zip(df["Value"], df["Published Value"]):
 
             if val not in vehicle_to_id_map:
+                # ✅ Suggest closest match
+                suggestion = get_close_matches(val, all_vehicles, n=1)
+                suggestion_text = suggestion[0] if suggestion else "No suggestion"
+
                 status_list.append("❌ Invalid")
-                reason_list.append("Spelling Error (Vehicle not in reference)")
+                reason_list.append("Spelling Error")
+                suggestion_list.append(suggestion_text)
 
             elif pub not in vehicle_to_id_map[val]:
                 expected = ", ".join(vehicle_to_id_map[val])
                 status_list.append("❌ Invalid")
                 reason_list.append(f"Mapping Mismatch (Expected ID: {expected})")
+                suggestion_list.append(val)
 
             else:
                 status_list.append("✅ Valid")
                 reason_list.append("Correct Mapping")
+                suggestion_list.append("")
 
         df["Status"] = status_list
         df["Reason"] = reason_list
+        df["Suggestion"] = suggestion_list
 
         unique_pairs = df[["Value", "Published Value"]].drop_duplicates()
 
         valid_count = (df["Status"] == "✅ Valid").sum()
         invalid_count = (df["Status"] == "❌ Invalid").sum()
 
-        return df, unique_pairs, valid_count, invalid_count, None
+        # Error breakdown
+        spelling_errors = (df["Reason"] == "Spelling Error").sum()
+        mapping_errors = df["Reason"].str.contains("Mapping Mismatch").sum()
+
+        return df, unique_pairs, valid_count, invalid_count, spelling_errors, mapping_errors, None
 
     except Exception as e:
-        return None, None, None, None, str(e)
+        return None, None, None, None, None, None, str(e)
+
 
 
 # -------------------------------

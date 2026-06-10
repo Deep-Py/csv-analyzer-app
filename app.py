@@ -135,35 +135,31 @@ def generate_comment(results):
 # ✅ VALIDATION (FIXED)
 
 def validate_pairs_from_github(excel_file):
-
     try:
-        # ✅ Read reference
         ref_df = pd.read_csv(REFERENCE_FILE_URL, dtype=str)
 
-        # ✅ Clean function
+        # ✅ Strong cleaning
         def clean_value(x):
             if pd.isna(x):
                 return ""
-            x = str(x).strip().upper()
-
+            x = str(x).strip().upper().replace("\xa0", "")
             if x.endswith(".0"):
                 x = x[:-2]
-
             if x.isdigit():
                 x = str(int(x))
-
-            x = x.replace("\xa0", "")
             return x
 
-        # ✅ Prepare reference structures
+        # ✅ Clean reference
         ref_df["Published"] = ref_df.iloc[:, 0].apply(clean_value)
         ref_df["Value"] = ref_df.iloc[:, 1].apply(clean_value)
 
-        # Mapping: Value → Published
-        value_to_pub = dict(zip(ref_df["Value"], ref_df["Published"]))
+        # ✅ MULTI-MAP support (IMPORTANT FIX)
+        value_to_pub_map = {}
 
-        # Pair set
-        ref_pairs = set(zip(ref_df["Value"], ref_df["Published"]))
+        for val, pub in zip(ref_df["Value"], ref_df["Published"]):
+            if val not in value_to_pub_map:
+                value_to_pub_map[val] = set()
+            value_to_pub_map[val].add(pub)
 
         # ✅ Read Excel
         df = pd.read_excel(excel_file, dtype=str)
@@ -171,21 +167,20 @@ def validate_pairs_from_github(excel_file):
         df["Value"] = df.iloc[:, 3].apply(clean_value)
         df["Published Value"] = df.iloc[:, 4].apply(clean_value)
 
-        # ✅ VALIDATION LOGIC
+        # ✅ Validation
         status_list = []
         reason_list = []
 
         for val, pub in zip(df["Value"], df["Published Value"]):
 
-            if val not in value_to_pub:
+            if val not in value_to_pub_map:
                 status_list.append("❌ Invalid")
-                reason_list.append("Spelling Error / Value Not Found")
+                reason_list.append("Spelling Error (Value not in reference)")
 
-            elif value_to_pub[val] != pub:
+            elif pub not in value_to_pub_map[val]:
+                expected_values = ", ".join(value_to_pub_map[val])
                 status_list.append("❌ Invalid")
-                reason_list.append(
-                    f"Mapping Mismatch (Expected: {value_to_pub[val]})"
-                )
+                reason_list.append(f"Mapping Mismatch (Expected: {expected_values})")
 
             else:
                 status_list.append("✅ Valid")
@@ -197,7 +192,7 @@ def validate_pairs_from_github(excel_file):
         # ✅ Unique pairs
         unique_pairs = df[["Value", "Published Value"]].drop_duplicates()
 
-        # ✅ Counts
+        # ✅ Summary
         valid_count = (df["Status"] == "✅ Valid").sum()
         invalid_count = (df["Status"] == "❌ Invalid").sum()
 

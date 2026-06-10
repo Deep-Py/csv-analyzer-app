@@ -175,38 +175,60 @@ tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
 # ===============================
 # CSV TAB
 # ===============================
-
 with tab1:
 
     st.subheader("📊 CSV Analyzer")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     # ✅ Header option
     with col1:
         has_header = st.checkbox("CSV has header row", value=True)
 
-    # ✅ View mode dropdown
+    # ✅ View dropdown
     with col2:
         view_mode = st.selectbox(
             "View Mode",
             ["Both", "Total Count", "Unique Count"]
         )
 
-    files = st.file_uploader("Upload CSV files", type=["csv"], accept_multiple_files=True)
+    # ✅ CLEAR BUTTON
+    with col3:
+        if st.button("Clear Files"):
+            st.session_state.csv_uploader_key += 1
+            st.rerun()
+
+    # ✅ FILE UPLOADER (KEY IMPORTANT)
+    files = st.file_uploader(
+        "Upload CSV files",
+        type=["csv"],
+        accept_multiple_files=True,
+        key=f"csv_upload_{st.session_state.csv_uploader_key}"
+    )
 
     if files:
+
         results = []
 
         for f in files:
 
+            st.markdown(f"### 📁 {f.name}")
+
             try:
                 df = pd.read_csv(f, header=0 if has_header else None)
 
-                col = df.iloc[:, 0].dropna()
+                col_index = st.selectbox(
+                    f"Select column for {f.name}",
+                    range(len(df.columns)),
+                    key=f"col_{f.name}"
+                )
 
-                total = len(col)
-                unique = col.nunique()
+                selected_col = df.iloc[:, col_index]
+
+                total = selected_col.dropna().shape[0]
+                unique = selected_col.nunique()
+                duplicates = selected_col[selected_col.duplicated()]
+                missing = selected_col.isna().sum()
 
                 results.append({
                     "File Name": f.name,
@@ -214,14 +236,46 @@ with tab1:
                     "Unique": unique
                 })
 
+                # ✅ Metrics
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total", total)
+                c2.metric("Unique", unique)
+                c3.metric("Missing", missing)
+
+                # ✅ Preview
+                with st.expander("Preview Data"):
+                    st.dataframe(df.head(10), use_container_width=True)
+
+                # ✅ Duplicates
+                with st.expander("Duplicate Values"):
+                    if not duplicates.empty:
+                        dup_df = duplicates.value_counts().reset_index()
+                        dup_df.columns = ["Value", "Count"]
+
+                        st.dataframe(dup_df)
+
+                        st.download_button(
+                            f"Download Duplicates ({f.name})",
+                            dup_df.to_csv(index=False),
+                            f"{f.name}_duplicates.csv"
+                        )
+                    else:
+                        st.success("No duplicates found ✅")
+
+                # ✅ Top values
+                with st.expander("Top Values"):
+                    top_vals = selected_col.value_counts().head(10).reset_index()
+                    top_vals.columns = ["Value", "Count"]
+                    st.dataframe(top_vals)
+
             except Exception as e:
                 st.error(f"{f.name}: {e}")
 
+        # ✅ Summary Table
         df_res = pd.DataFrame(results)
 
-        st.subheader("Results")
+        st.subheader("📋 Summary Table")
 
-        # ✅ Apply dropdown filter
         if view_mode == "Total Count":
             display_df = df_res[["File Name", "Total"]]
 
@@ -233,8 +287,15 @@ with tab1:
 
         st.dataframe(display_df, use_container_width=True)
 
-        # ✅ Summary (restored original logic)
-        st.subheader("Generated Summary")
+        # ✅ Download summary
+        st.download_button(
+            "Download Summary CSV",
+            display_df.to_csv(index=False),
+            "summary.csv"
+        )
+
+        # ✅ Generated summary
+        st.subheader("📝 Generated Summary")
 
         st.text_area(
             "",

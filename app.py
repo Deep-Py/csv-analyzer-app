@@ -175,23 +175,73 @@ tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
 # ===============================
 # CSV TAB
 # ===============================
+
 with tab1:
+
+    st.subheader("📊 CSV Analyzer")
+
+    col1, col2 = st.columns(2)
+
+    # ✅ Header option
+    with col1:
+        has_header = st.checkbox("CSV has header row", value=True)
+
+    # ✅ View mode dropdown
+    with col2:
+        view_mode = st.selectbox(
+            "View Mode",
+            ["Both", "Total Count", "Unique Count"]
+        )
 
     files = st.file_uploader("Upload CSV files", type=["csv"], accept_multiple_files=True)
 
     if files:
         results = []
+
         for f in files:
-            total, unique = process_csv(f)
-            results.append({
-                "File Name": f.name,
-                "Total": total,
-                "Unique": unique
-            })
+
+            try:
+                df = pd.read_csv(f, header=0 if has_header else None)
+
+                col = df.iloc[:, 0].dropna()
+
+                total = len(col)
+                unique = col.nunique()
+
+                results.append({
+                    "File Name": f.name,
+                    "Total": total,
+                    "Unique": unique
+                })
+
+            except Exception as e:
+                st.error(f"{f.name}: {e}")
 
         df_res = pd.DataFrame(results)
-        st.dataframe(df_res)
-        st.text_area("Summary", generate_summary(results), height=200)
+
+        st.subheader("Results")
+
+        # ✅ Apply dropdown filter
+        if view_mode == "Total Count":
+            display_df = df_res[["File Name", "Total"]]
+
+        elif view_mode == "Unique Count":
+            display_df = df_res[["File Name", "Unique"]]
+
+        else:
+            display_df = df_res
+
+        st.dataframe(display_df, use_container_width=True)
+
+        # ✅ Summary (restored original logic)
+        st.subheader("Generated Summary")
+
+        st.text_area(
+            "",
+            generate_summary(results),
+            height=250
+        )
+
 
 # ===============================
 # VALIDATION TAB

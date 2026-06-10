@@ -230,7 +230,7 @@ with tab1:
                 col_index = st.selectbox(
                     f"Select column for {f.name}",
                     range(len(df.columns)),
-                    key=f"col_{f.name}"
+                    key=f"col_{f.name}_{st.session_state.csv_uploader_key}"
                 )
 
                 selected_col = df.iloc[:, col_index]

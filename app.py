@@ -194,9 +194,19 @@ with tab1:
 
     # ✅ CLEAR BUTTON
     with col3:
+
         if st.button("Clear Files"):
+        
+            # reset uploader
             st.session_state.csv_uploader_key += 1
-            st.rerun()
+        
+            # ✅ clear dynamic widget states
+            keys_to_remove = [k for k in st.session_state.keys() if k.startswith("col_")]
+            for k in keys_to_remove:
+                del st.session_state[k]
+        
+            st.rerun(
+
 
     # ✅ FILE UPLOADER (KEY IMPORTANT)
     files = st.file_uploader(

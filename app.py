@@ -17,82 +17,44 @@ st.title("CSV Audit Assistant")
 # ===============================
 if "auto_fixed" not in st.session_state:
     st.session_state.auto_fixed = False
-
 if "corrected_pairs" not in st.session_state:
     st.session_state.corrected_pairs = None
+if "original_df" not in st.session_state:
+    st.session_state.original_df = None
 
 # ===============================
-# HELPERS
+# CACHED DATA
 # ===============================
-def clean_value(x):
-    if pd.isna(x):
-        return ""
-    x = str(x).strip().upper()
-    if x.endswith(".0"):
-        x = x[:-2]
-    if x.isdigit():
-        x = str(int(x))
-    return x
+@st.cache_data
+def load_reference():
+    return pd.read_csv(REFERENCE_FILE_URL, dtype=str)
 
 
-def get_suggestion(value, reference_list):
-    match = get_close_matches(value, reference_list, n=1, cutoff=0.5)
-    if match:
-        return match[0]
-    for ref in reference_list:
-        if value in ref:
-            return ref
-    return "No suggestion"
+@st.cache_data
+def validate_pairs(file_bytes):
 
-# ===============================
-# CSV ANALYZER
-# ===============================
-def process_csv(file):
-    df = pd.read_csv(file)
-    col = df.iloc[:, 0].dropna()
-    return len(col), col.nunique()
+    ref = load_reference()
 
+    def clean_value(x):
+        if pd.isna(x):
+            return ""
+        x = str(x).strip().upper()
+        if x.endswith(".0"):
+            x = x[:-2]
+        if x.isdigit():
+            x = str(int(x))
+        return x
 
-def generate_summary(results):
+    def get_suggestion(value, reference_list):
+        matches = get_close_matches(value, reference_list, n=1, cutoff=0.5)
+        if matches:
+            return matches[0]
+        for ref_val in reference_list:
+            if value in ref_val:
+                return ref_val
+        return "No suggestion"
 
-    added, deleted = [], []
-
-    for f in results:
-        name = f["File Name"].upper()
-
-        if re.search(r'(^|_)ADD($|_)', name):
-            added.append(f)
-        elif re.search(r'(^|_)DELETE($|_)|(^|_)REMOVE($|_)', name):
-            deleted.append(f)
-
-    total_added = sum(x["Total"] for x in added)
-    total_deleted = sum(x["Total"] for x in deleted)
-
-    text = "MMT Updates Completed:\n\n"
-
-    if added:
-        text += "Added Records:\n"
-        for f in added:
-            text += f"  • {f['Total']} records added from {f['File Name']}\n"
-        text += "\n"
-
-    if deleted:
-        text += "Deleted Records:\n"
-        for f in deleted:
-            text += f"  • {f['Total']} records deleted from {f['File Name']}\n"
-        text += "\n"
-
-    text += f"Summary:\n  • Added: {total_added}\n  • Deleted: {total_deleted}"
-
-    return text
-
-# ===============================
-# VALIDATION ENGINE
-# ===============================
-def validate_pairs(file):
-
-    ref = pd.read_csv(REFERENCE_FILE_URL, dtype=str)
-
+    # ✅ Prepare reference
     ref["Vehicle"] = ref.iloc[:, 0].apply(clean_value)
     ref["Vehicle_ID"] = ref.iloc[:, 1].apply(clean_value)
 
@@ -102,7 +64,8 @@ def validate_pairs(file):
 
     vehicles = list(vehicle_map.keys())
 
-    df = pd.read_excel(file, dtype=str)
+    # ✅ Read Excel
+    df = pd.read_excel(file_bytes, dtype=str)
 
     df["Value"] = df.iloc[:, 3].apply(clean_value)
     df["Published Value"] = df.iloc[:, 4].apply(clean_value)
@@ -140,8 +103,40 @@ def validate_pairs(file):
 
     return df, unique_pairs, vehicle_map
 
+
 # ===============================
-# TABS
+# CSV ANALYZER
+# ===============================
+def process_csv(file):
+    df = pd.read_csv(file)
+    col = df.iloc[:, 0].dropna()
+    return len(col), col.nunique()
+
+
+def generate_summary(results):
+    added, deleted = [], []
+
+    for f in results:
+        name = f["File Name"].upper()
+
+        if re.search(r'(^|_)ADD($|_)', name):
+            added.append(f)
+        elif re.search(r'(^|_)DELETE($|_)|(^|_)REMOVE($|_)', name):
+            deleted.append(f)
+
+    text = "MMT Updates Completed:\n\n"
+
+    for f in added:
+        text += f"Added: {f['Total']} from {f['File Name']}\n"
+
+    for f in deleted:
+        text += f"Deleted: {f['Total']} from {f['File Name']}\n"
+
+    return text
+
+
+# ===============================
+# UI TABS
 # ===============================
 tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
 
@@ -150,7 +145,7 @@ tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
 # ===============================
 with tab1:
 
-    files = st.file_uploader("Upload CSV Files", type=["csv"], accept_multiple_files=True)
+    files = st.file_uploader("Upload CSV files", type=["csv"], accept_multiple_files=True)
 
     if files:
         results = []
@@ -164,9 +159,9 @@ with tab1:
                 "Unique": unique
             })
 
-        df = pd.DataFrame(results)
+        df_res = pd.DataFrame(results)
+        st.dataframe(df_res)
 
-        st.dataframe(df)
         st.text_area("Summary", generate_summary(results), height=200)
 
 # ===============================
@@ -178,31 +173,32 @@ with tab2:
 
     if excel_file:
 
-        df, unique_pairs, vehicle_map = validate_pairs(excel_file)
+        file_bytes = excel_file.getvalue()
+
+        df, unique_pairs, vehicle_map = validate_pairs(file_bytes)
+
+        # ✅ Cache original Excel ONCE
+        if st.session_state.original_df is None:
+            st.session_state.original_df = pd.read_excel(excel_file, dtype=str)
 
         invalid_count = df["Is_Invalid"].sum()
 
-        # ✅ TOGGLE
+        # ✅ Toggle
         show_invalid = st.toggle(f"Show Invalid ({invalid_count})")
 
-        display = df.copy()
+        display = df[df["Is_Invalid"]] if show_invalid else df
 
-        if show_invalid:
-            display = display[display["Is_Invalid"]]
-
-        st.subheader("Validation Results")
-
-        # ✅ Highlight invalid rows
+        # ✅ Highlight rows
         def highlight(row):
             return ["background-color: #ffe6e6"] * len(row) if row["Is_Invalid"] else [""] * len(row)
 
         st.dataframe(display.style.apply(highlight, axis=1), use_container_width=True)
 
-        # ✅ UNIQUE PAIRS SECTION (SAME POSITION)
+        # ✅ UNIQUE PAIRS (same position)
         st.subheader("Unique Pairs")
 
         if st.session_state.auto_fixed and st.session_state.corrected_pairs is not None:
-            st.dataframe(st.session_state.corrected_pairs)
+            st.dataframe(st.session_state.corrected_pairs, use_container_width=True)
 
         else:
             def highlight_pairs(row):
@@ -216,53 +212,16 @@ with tab2:
         # ✅ AUTO FIX
         st.subheader("Auto Fix")
 
-        if st.button("Apply Auto Fix"):
+        col1, col2 = st.columns(2)
 
-            original_df = pd.read_excel(excel_file, dtype=str)
-            corrected_df = original_df.copy()
+        with col1:
+            if st.button("Apply Auto Fix"):
 
-            for i in range(len(df)):
+                corrected_df = st.session_state.original_df.copy()
 
-                if df.loc[i, "Reason"] == "Spelling Error":
-                    suggestion = df.loc[i, "Suggestion"]
-                    if suggestion != "No suggestion":
-                        corrected_df.iloc[i, 3] = suggestion
+                for i in range(len(df)):
 
-                elif "Mapping Error" in df.loc[i, "Reason"]:
-                    val = df.loc[i, "Value"]
-                    if val in vehicle_map:
-                        corrected_df.iloc[i, 4] = list(vehicle_map[val])[0]
-
-            corrected_pairs = pd.DataFrame({
-                "Value": corrected_df.iloc[:, 3].apply(clean_value),
-                "Published Value": corrected_df.iloc[:, 4].apply(clean_value)
-            }).drop_duplicates()
-
-            st.session_state.auto_fixed = True
-            st.session_state.corrected_pairs = corrected_pairs
-
-            # ✅ FILE NAME SAME
-            filename = excel_file.name.replace(".xlsx", "_corrected.xlsx")
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-                corrected_df.to_excel(tmp.name, index=False)
-                clean_file = open(tmp.name, "rb").read()
-
-            st.download_button("Download Corrected File", clean_file, filename)
-
-        # ✅ RESET BUTTON
-        if st.session_state.auto_fixed:
-            if st.button("Reset / Undo Fix"):
-                st.session_state.auto_fixed = False
-                st.session_state.corrected_pairs = None
-                st.success("Reset successful")
-
-        # ✅ DOWNLOAD ERRORS
-        error_df = df[df["Is_Invalid"]]
-
-        st.download_button(
-            "Download Errors",
-            error_df.to_csv(index=False),
-            "errors.csv"
-        )
-
+                    if df.loc[i, "Reason"] == "Spelling Error":
+                        sugg = df.loc[i, "Suggestion"]
+                        if sugg != "No suggestion":
+                           

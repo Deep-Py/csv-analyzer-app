@@ -176,9 +176,9 @@ tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
 # CSV TAB
 # ===============================
 
+
 with tab1:
 
-    # ✅ SESSION KEY (REQUIRED FOR CLEAR BUTTON)
     if "csv_uploader_key" not in st.session_state:
         st.session_state.csv_uploader_key = 0
 
@@ -197,21 +197,13 @@ with tab1:
             ["Both", "Total Count", "Unique Count"]
         )
 
-    # ✅ CLEAR BUTTON (STABLE)
+    # ✅ Clear Button
     with col3:
         if st.button("Clear Files"):
-
-            # reset uploader key
             st.session_state.csv_uploader_key += 1
-
-            # ✅ clear dynamic column selector states
-            for key in list(st.session_state.keys()):
-                if key.startswith("col_"):
-                    del st.session_state[key]
-
             st.rerun()
 
-    # ✅ FILE UPLOADER (KEY CRITICAL)
+    # ✅ File uploader
     files = st.file_uploader(
         "Upload CSV files",
         type=["csv"],
@@ -225,98 +217,54 @@ with tab1:
 
         for f in files:
 
-            st.markdown(f"### 📁 {f.name}")
-
             try:
                 df = pd.read_csv(f, header=0 if has_header else None)
 
                 if df.empty:
-                    st.warning(f"{f.name} is empty")
                     continue
 
             except Exception as e:
                 st.error(f"{f.name}: {e}")
                 continue
 
-            # ✅ COLUMN SELECTOR (FIXED KEY)
-            col_index = st.selectbox(
-                f"Select column for {f.name}",
-                range(len(df.columns)),
-                key=f"col_{f.name}_{st.session_state.csv_uploader_key}"
-            )
+            # ✅ First column only
+            col = df.iloc[:, 0]
 
-            selected_col = df.iloc[:, col_index]
-
-            total = selected_col.dropna().shape[0]
-            unique = selected_col.nunique()
-            missing = selected_col.isna().sum()
-
-            duplicates = selected_col[selected_col.duplicated()]
+            total = col.dropna().shape[0]
+            unique = col.nunique()
+            missing = col.isna().sum()
 
             results.append({
                 "File Name": f.name,
                 "Total": total,
-                "Unique": unique
+                "Unique": unique,
+                "Missing": missing
             })
 
-            # ✅ METRICS
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total", total)
-            c2.metric("Unique", unique)
-            c3.metric("Missing", missing)
-
-            # ✅ PREVIEW
-            with st.expander("Preview Data"):
-                st.dataframe(df.head(10), use_container_width=True)
-
-            # ✅ DUPLICATES
-            with st.expander("Duplicate Values"):
-                if not duplicates.empty:
-                    dup_df = duplicates.value_counts().reset_index()
-                    dup_df.columns = ["Value", "Count"]
-
-                    st.dataframe(dup_df)
-
-                    st.download_button(
-                        f"Download Duplicates ({f.name})",
-                        dup_df.to_csv(index=False),
-                        f"{f.name}_duplicates.csv"
-                    )
-                else:
-                    st.success("No duplicates found ✅")
-
-            # ✅ TOP VALUES
-            with st.expander("Top Values"):
-                top_values = selected_col.value_counts().head(10).reset_index()
-                top_values.columns = ["Value", "Count"]
-                st.dataframe(top_values)
-
-        # ===============================
-        # SUMMARY TABLE
-        # ===============================
+        # ✅ Create summary dataframe
         df_res = pd.DataFrame(results)
 
         st.subheader("📋 Summary Table")
 
         if view_mode == "Total Count":
             display_df = df_res[["File Name", "Total"]]
+
         elif view_mode == "Unique Count":
             display_df = df_res[["File Name", "Unique"]]
+
         else:
             display_df = df_res
 
         st.dataframe(display_df, use_container_width=True)
 
-        # ✅ DOWNLOAD SUMMARY
+        # ✅ Download summary
         st.download_button(
             "Download Summary CSV",
             display_df.to_csv(index=False),
             "summary.csv"
         )
 
-        # ===============================
-        # GENERATED COMMENT (RESTORED)
-        # ===============================
+        # ✅ Generated comment
         st.subheader("📝 Generated Summary")
 
         st.text_area(

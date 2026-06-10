@@ -205,7 +205,7 @@ with tab1:
             for k in keys_to_remove:
                 del st.session_state[k]
         
-            st.rerun(
+            st.rerun()
 
 
     # ✅ FILE UPLOADER (KEY IMPORTANT)

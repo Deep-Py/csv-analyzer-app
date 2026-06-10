@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import tempfile
 import re
+from io import BytesIO
 from difflib import get_close_matches
 
 # ===============================
@@ -65,7 +66,7 @@ def validate_pairs(file_bytes):
 
     vehicles = list(vehicle_map.keys())
 
-    df = pd.read_excel(file_bytes, dtype=str)
+    df = pd.read_excel(BytesIO(file_bytes)), dtype=str)
 
     df["Value"] = df.iloc[:, 3].apply(clean_value)
     df["Published Value"] = df.iloc[:, 4].apply(clean_value)

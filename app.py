@@ -134,7 +134,7 @@ def generate_comment(results):
 
 # ✅ VALIDATION (FIXED)
 
-ef validate_pairs_from_github(excel_file):
+def validate_pairs_from_github(excel_file):
 
     try:
         # ✅ Read reference

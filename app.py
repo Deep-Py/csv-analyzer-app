@@ -8,6 +8,7 @@ import re
 # -------------------------------
 REFERENCE_FILE_URL = "https://raw.githubusercontent.com/Deep-Py/csv-analyzer-app/main/reference.csv"
 
+
 st.set_page_config(page_title="CSV Audit Assistant", layout="wide")
 st.title("📊 CSV Audit Assistant")
 
@@ -60,14 +61,30 @@ validate_clicked = st.sidebar.button("✅ Validate Pairs")
 # HELPERS
 # -------------------------------
 def clean_value(x):
-    """✅ Fix numeric + string mismatch"""
-    return str(x).strip().upper().replace(".0", "")
+    if pd.isna(x):
+        return ""
+
+    x = str(x)
+    x = (
+        x.replace("\xa0", "")
+         .replace("\u2007", "")
+         .replace("\u202f", "")
+         .strip()
+         .upper()
+    )
+
+    if x.endswith(".0"):
+        x = x[:-2]
+
+    if x.isdigit():
+        x = str(int(x))
+
+    return x
 
 
 def process_csv(file, has_header):
     try:
         df = pd.read_csv(file, header=0 if has_header else None)
-
         col = df.iloc[:, 0].dropna()
         return len(col), col.nunique(), None
     except Exception as e:
@@ -84,7 +101,7 @@ def convert_excel(df):
         return open(tmp.name, "rb").read()
 
 
-# ✅ SUMMARY
+# ✅ SUMMARY FUNCTION
 def generate_comment(results):
 
     added, deleted = [], []
@@ -132,53 +149,40 @@ def generate_comment(results):
     return comment
 
 
-# ✅ VALIDATION (FIXED)
-
+# ✅ FINAL VALIDATION FUNCTION (CORRECT LOGIC)
 def validate_pairs_from_github(excel_file):
 
     try:
         ref_df = pd.read_csv(REFERENCE_FILE_URL, dtype=str)
 
-        def clean_value(x):
-            if pd.isna(x):
-                return ""
-            x = str(x).strip().upper().replace("\xa0", "")
-            if x.endswith(".0"):
-                x = x[:-2]
-            if x.isdigit():
-                x = str(int(x))
-            return x
+        # ✅ Correct mapping
+        ref_df["Vehicle"] = ref_df.iloc[:, 0].apply(clean_value)
+        ref_df["Vehicle_ID"] = ref_df.iloc[:, 1].apply(clean_value)
 
-        # ✅ CORRECT mapping (IMPORTANT FIX)
-        ref_df["Value"] = ref_df.iloc[:, 0].apply(clean_value)       # AUTO
-        ref_df["Published"] = ref_df.iloc[:, 1].apply(clean_value)  # 3
+        vehicle_to_id_map = {}
+        for v, vid in zip(ref_df["Vehicle"], ref_df["Vehicle_ID"]):
+            if v not in vehicle_to_id_map:
+                vehicle_to_id_map[v] = set()
+            vehicle_to_id_map[v].add(vid)
 
-        # ✅ Build map
-        value_to_pub_map = {}
-        for v, p in zip(ref_df["Value"], ref_df["Published"]):
-            if v not in value_to_pub_map:
-                value_to_pub_map[v] = set()
-            value_to_pub_map[v].add(p)
-
-        # ✅ Read Excel
         df = pd.read_excel(excel_file, dtype=str)
 
-        df["Value"] = df.iloc[:, 3].apply(clean_value)         # AUTO
-        df["Published Value"] = df.iloc[:, 4].apply(clean_value)  # 3
+        df["Value"] = df.iloc[:, 3].apply(clean_value)          # Vehicle
+        df["Published Value"] = df.iloc[:, 4].apply(clean_value)  # ID
 
         status_list = []
         reason_list = []
 
         for val, pub in zip(df["Value"], df["Published Value"]):
 
-            if val not in value_to_pub_map:
+            if val not in vehicle_to_id_map:
                 status_list.append("❌ Invalid")
-                reason_list.append("Spelling Error (Value not in reference)")
+                reason_list.append("Spelling Error (Vehicle not in reference)")
 
-            elif pub not in value_to_pub_map[val]:
-                expected = ", ".join(value_to_pub_map[val])
+            elif pub not in vehicle_to_id_map[val]:
+                expected = ", ".join(vehicle_to_id_map[val])
                 status_list.append("❌ Invalid")
-                reason_list.append(f"Mapping Mismatch (Expected: {expected})")
+                reason_list.append(f"Mapping Mismatch (Expected ID: {expected})")
 
             else:
                 status_list.append("✅ Valid")
@@ -196,6 +200,7 @@ def validate_pairs_from_github(excel_file):
 
     except Exception as e:
         return None, None, None, None, str(e)
+
 
 # -------------------------------
 # CLEAR
@@ -235,7 +240,7 @@ if process_clicked:
         st.session_state.results = results
 
 # -------------------------------
-# DISPLAY CSV
+# DISPLAY CSV RESULTS
 # -------------------------------
 if st.session_state.results:
 
@@ -254,8 +259,9 @@ if st.session_state.results:
 
     st.text_area("Copy Summary", generate_comment(st.session_state.results), height=300)
 
+
 # -------------------------------
-# DISPLAY VALIDATION
+# VALIDATION OUTPUT
 # -------------------------------
 if validate_clicked:
 

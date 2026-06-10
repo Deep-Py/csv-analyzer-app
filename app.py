@@ -296,24 +296,78 @@ if validate_clicked:
     if not excel_file:
         st.error("Upload Excel file")
     else:
-        df_val, unique_pairs, valid, invalid, err = validate_pairs_from_github(excel_file)
+        df_val, unique_pairs, valid, invalid, spelling_err, mapping_err, err = validate_pairs_from_github(excel_file)
 
         if err:
             st.error(err)
         else:
             st.subheader("✅ Validation Results")
 
+            # ✅ Toggle
+            show_invalid_only = st.checkbox("Show Only Invalid Records")
+
+            display_df = df_val[df_val["Status"] == "❌ Invalid"] if show_invalid_only else df_val
+
+            # ✅ Highlight
             def highlight(row):
                 return ['background-color: #ffcccc' if row.Status == "❌ Invalid" else '' for _ in row]
 
-            st.dataframe(df_val.style.apply(highlight, axis=1), use_container_width=True)
+            st.dataframe(display_df.style.apply(highlight, axis=1), use_container_width=True)
 
-            st.markdown(f"""
-            **Summary**
-            - ✅ Valid: {valid}
-            - ❌ Invalid: {invalid}
-            """)
+            # ✅ Summary
+            st.subheader("📊 Summary")
 
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.metric("✅ Valid", valid)
+                st.metric("❌ Invalid", invalid)
+
+            with col2:
+                st.metric("Spelling Errors", spelling_err)
+                st.metric("Mapping Errors", mapping_err)
+
+            # ✅ Charts
+            chart_data = pd.DataFrame({
+                "Type": ["Valid", "Invalid"],
+                "Count": [valid, invalid]
+            })
+
+            st.bar_chart(chart_data.set_index("Type"))
+
+            error_data = pd.DataFrame({
+                "Type": ["Spelling", "Mapping"],
+                "Count": [spelling_err, mapping_err]
+            })
+
+            st.bar_chart(error_data.set_index("Type"))
+
+            # ✅ Export only invalid
+            invalid_df = df_val[df_val["Status"] == "❌ Invalid"]
+
+            st.subheader("⬇️ Export Errors")
+
+            c1, c2 = st.columns(2)
+
+            with c1:
+                st.download_button(
+                    "Download Errors CSV",
+                    invalid_df.to_csv(index=False).encode("utf-8"),
+                    "errors.csv"
+                )
+
+            with c2:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+                    invalid_df.to_excel(tmp.name, index=False)
+                    data = open(tmp.name, "rb").read()
+
+                st.download_button(
+                    "Download Errors Excel",
+                    data,
+                    "errors.xlsx"
+                )
+
+            # ✅ Unique pairs
             st.subheader("🔹 Unique Pairs")
             st.dataframe(unique_pairs, use_container_width=True)
 

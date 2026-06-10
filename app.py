@@ -117,10 +117,54 @@ def process_csv(file):
     return len(col), col.nunique()
 
 def generate_summary(results):
-    text = "MMT Updates Completed:\n\n"
+
+    added, deleted = [], []
+
     for f in results:
-        text += f"{f['File Name']} → Total: {f['Total']}, Unique: {f['Unique']}\n"
-    return text
+        name = f["File Name"].upper()
+
+        if re.search(r'(^|_)ADD($|_)', name):
+            added.append(f)
+
+        elif re.search(r'(^|_)DELETE($|_)', name) or re.search(r'(^|_)REMOVE($|_)', name):
+            deleted.append(f)
+
+    def get_domain(filename):
+        name = filename.upper()
+
+        if "EZ_ADDT_RESTR" in name:
+            return "EZ_ADDT_RESTR"
+        elif "EZ_TIME_RESTR" in name:
+            return "EZ_TIME_RESTR"
+        elif "EZ_RESTR" in name:
+            return "EZ_RESTR"
+
+        return filename.replace(".csv", "")
+
+    total_added = sum(f["Total"] for f in added) if added else 0
+    total_deleted = sum(f["Total"] for f in deleted) if deleted else 0
+
+    comment = "MMT Updates Completed:\n\n"
+
+    if added:
+        comment += "Added Records:\n"
+        for f in added:
+            comment += f"  • {f['Total']} records added into {get_domain(f['File Name'])} domain combo.\n"
+        comment += "\n"
+
+    if deleted:
+        comment += "Deleted Records:\n"
+        for f in deleted:
+            comment += f"  • {f['Total']} records deleted from {get_domain(f['File Name'])} domain combo.\n"
+        comment += "\n"
+
+    comment += "Summary:\n"
+    comment += f"  • Total Added Records: {total_added}\n"
+    comment += f"  • Total Deleted Records: {total_deleted}\n\n"
+
+    comment += "Thanks,\nDeepesh Pawar"
+
+    return comment
 
 
 # ===============================

@@ -238,60 +238,68 @@ if excel_file:
     col2.metric("Mapping Errors", mapping)
 
     # ✅ AUTO FIX BUTTON
+    
     st.subheader("🛠️ Auto Fix")
-
+    
     if st.button("Apply Auto Fix"):
-
-        # ✅ Start from ORIGINAL file (VERY IMPORTANT)
+    
+        # ✅ Read original file again (clean structure)
         original_df = pd.read_excel(excel_file, dtype=str)
-
+    
         corrected_df = original_df.copy()
-
+    
+        # ✅ Apply fixes
         for i in range(len(df)):
-
+    
+            # ✅ Fix spelling errors
             if df.loc[i, "Reason"] == "Spelling Error":
-
+    
                 suggestion = df.loc[i, "Suggestion"]
-
+    
                 if suggestion != "No suggestion":
                     corrected_df.iloc[i, 3] = suggestion
-
+    
+            # ✅ Fix mapping errors
             elif "Mapping Error" in df.loc[i, "Reason"]:
-
+    
                 val = df.loc[i, "Value"]
-
-                # ✅ Get correct ID from reference
-                for v, ids in vehicle_map.items():
-                    if v == val:
-                        corrected_df.iloc[i, 4] = list(ids)[0]
-
-        # ✅ Save clean file (no extra columns)
+    
+                if val in vehicle_map:
+                    corrected_df.iloc[i, 4] = list(vehicle_map[val])[0]
+    
+        # ✅ ✅ Recalculate unique pairs AFTER fix (IMPORTANT)
+        corrected_unique_pairs = (
+            pd.DataFrame({
+                "Value": corrected_df.iloc[:, 3].apply(clean_value),
+                "Published Value": corrected_df.iloc[:, 4].apply(clean_value)
+            })
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
+    
+        # ✅ Extract original filename
+        original_name = excel_file.name.replace(".xlsx", "")
+    
+        new_filename = f"{original_name}_corrected.xlsx"
+    
+        # ✅ Save corrected file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
             corrected_df.to_excel(tmp.name, index=False)
             clean_file = open(tmp.name, "rb").read()
-
-        st.success("✅ Auto Fix Applied")
-
+    
+        st.success("✅ Auto Fix Applied Successfully")
+    
+        # ✅ Download button with SAME name pattern
         st.download_button(
-            "Download Corrected Clean File",
+            "Download Corrected File",
             clean_file,
-            "corrected_clean.xlsx"
+            new_filename
         )
+    
+        # ✅ Show NEW unique pairs
+        st.subheader("✅ Unique Pairs After Fix")
+        st.dataframe(corrected_unique_pairs, use_container_width=True)
 
-    # ✅ EXPORT ONLY ERRORS
-    st.subheader("⬇️ Export Errors")
-
-    error_df = df[df["Is_Invalid"] == True]
-
-    st.download_button(
-        "Download Errors",
-        error_df.to_csv(index=False),
-        "errors.csv"
-    )
-
-    # ✅ UNIQUE PAIRS
-    st.subheader("Unique Pairs")
-    st.dataframe(unique_pairs, use_container_width=True)
 
 
 

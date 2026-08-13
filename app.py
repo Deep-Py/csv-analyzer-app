@@ -586,6 +586,8 @@ with tab2:
 # ===============================
 # EZID COMPARER TAB
 # ===============================
+with tab3:    
+    
     st.subheader("🔍 EZID CSV Comparer")
     
     c1, c2, c3 = st.columns([3, 3, 1])

@@ -31,6 +31,9 @@ if "original_df" not in st.session_state:
 if "corrected_file" not in st.session_state:
     st.session_state.corrected_file = None
 
+if "compare_uploader_key" not in st.session_state:
+    st.session_state.compare_uploader_key = 0
+
 # ===============================
 # CACHE
 # ===============================
@@ -583,24 +586,27 @@ with tab2:
 # ===============================
 # EZID COMPARER TAB
 # ===============================
-with tab3:
-
     st.subheader("🔍 EZID CSV Comparer")
+    
+    c1, c2, c3 = st.columns([3, 3, 1])
+    
+    with c3:
+        if st.button("Clear Files", key="compare_clear"):
+            st.session_state.compare_uploader_key += 1
+            st.rerun()
 
-    col1, col2 = st.columns(2)
-
-    with col1:
+    with c1:
         old_file = st.file_uploader(
             "Upload OLD CSV",
             type=["csv"],
-            key="old_csv"
+            key=f"old_csv_{st.session_state.compare_uploader_key}"
         )
-
-    with col2:
+    
+    with c2:
         new_file = st.file_uploader(
             "Upload NEW CSV",
             type=["csv"],
-            key="new_csv"
+            key=f"new_csv_{st.session_state.compare_uploader_key}"
         )
 
     if old_file and new_file:
@@ -609,9 +615,8 @@ with tab3:
 
             old_df = pd.read_csv(old_file, dtype=str)
             new_df = pd.read_csv(new_file, dtype=str)
-
-            # Find EZID column automatically
-
+            
+            # Detect EZID column
             old_ezid_col = next(
                 (c for c in old_df.columns if str(c).strip().upper() == "EZID"),
                 None
@@ -622,61 +627,59 @@ with tab3:
                 None
             )
             
-            if old_ezid_col is None:
-                st.error(f"EZID column not found in {old_file.name}")
+            if old_ezid_col is None or new_ezid_col is None:
+                st.error("EZID column not found.")
                 st.stop()
             
-            if new_ezid_col is None:
-                st.error(f"EZID column not found in {new_file.name}")
-                st.stop()
-            
-            old_ezids = set(
+            old_df[old_ezid_col] = (
                 old_df[old_ezid_col]
-                .dropna()
                 .astype(str)
                 .str.strip()
             )
             
-            new_ezids = set(
+            new_df[new_ezid_col] = (
                 new_df[new_ezid_col]
-                .dropna()
                 .astype(str)
                 .str.strip()
-            )
+)
             # -----------------------------------
             # Comparison
             # -----------------------------------
-            added = sorted(
-                new_ezids - old_ezids
-            )
-
-            deleted = sorted(
-                old_ezids - new_ezids
-            )
-
-            unchanged = sorted(
-                new_ezids.intersection(old_ezids)
-            )
+            old_ezids = set(old_df[old_ezid_col].dropna())
+            new_ezids = set(new_df[new_ezid_col].dropna())
+            
+            added = new_ezids - old_ezids
+            deleted = old_ezids - new_ezids
+            unchanged = old_ezids & new_ezids
 
             # -----------------------------------
             # Output dataframe
             # -----------------------------------
+            added_df = new_df[
+                new_df[new_ezid_col].isin(added)
+            ].copy()
+            
+            added_df["Status"] = "NEW CITY ADDED"
+            
+            deleted_df = old_df[
+                old_df[old_ezid_col].isin(deleted)
+            ].copy()
+            
+            deleted_df["Status"] = "OLD CITY DELETED"
+            
+            unchanged_df = new_df[
+                new_df[new_ezid_col].isin(unchanged)
+            ].copy()
+            
+            unchanged_df["Status"] = "NO CHANGE"
+
+
+
             result_df = pd.concat(
                 [
-                    pd.DataFrame({
-                        "EZID": added,
-                        "Status": "NEW CITY ADDED"
-                    }),
-
-                    pd.DataFrame({
-                        "EZID": deleted,
-                        "Status": "OLD CITY DELETED"
-                    }),
-
-                    pd.DataFrame({
-                        "EZID": unchanged,
-                        "Status": "NO CHANGE"
-                    })
+                    added_df,
+                    deleted_df,
+                    unchanged_df
                 ],
                 ignore_index=True
             )
@@ -708,50 +711,49 @@ with tab3:
             # -----------------------------------
             # Output filename
             # -----------------------------------
-            old_name = old_file.name.replace(
-                ".csv",
-                ""
-            )
-
-            new_name = new_file.name.replace(
-                ".csv",
-                ""
-            )
-
+            old_name = old_file.name.rsplit(".", 1)[0]
+            new_name = new_file.name.rsplit(".", 1)[0]
+            
             output_file_name = (
                 f"{new_name}_Vs_{old_name}.csv"
             )
 
             st.download_button(
-                "Download Comparison File",
-                result_df.to_csv(index=False),
-                output_file_name,
-                "text/csv"
+            "Download Comparison File",
+            result_df.to_csv(index=False),
+            output_file_name,
+            "text/csv"
             )
 
             # -----------------------------------
             # Comment Generation
             # -----------------------------------
             comment = f"""
-MMT City Comparison Completed:
-
-New Cities Added:
-{len(added)}
-
-Old Cities Deleted:
-{len(deleted)}
-
-No Change:
-{len(unchanged)}
-
-Summary:
-• Total Added Cities: {len(added)}
-• Total Deleted Cities: {len(deleted)}
-• Total Unchanged Cities: {len(unchanged)}
-
-Thanks,
-Deepesh Pawar
-"""
+            MMT City Comparison Completed:
+            
+            Files Compared:
+            • Old File : {old_file.name}
+            • New File : {new_file.name}
+            
+            Changes Identified:
+            
+            Added Cities:
+            • {len(added)} EZIDs exist in NEW file but not in OLD file.
+            
+            Deleted Cities:
+            • {len(deleted)} EZIDs exist in OLD file but not in NEW file.
+            
+            No Change:
+            • {len(unchanged)} EZIDs are present in both files.
+            
+            Summary:
+            • Total Added Cities: {len(added)}
+            • Total Deleted Cities: {len(deleted)}
+            • Total Unchanged Cities: {len(unchanged)}
+            
+            Thanks,
+            Deepesh Pawar
+            """
 
             st.subheader("📝 Generated Comment")
 

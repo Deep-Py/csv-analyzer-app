@@ -173,7 +173,9 @@ def generate_summary(results):
 # ===============================
 # UI TABS
 # ===============================
-tab1, tab2 = st.tabs(["CSV Analyzer", "Excel Validation"])
+tab1, tab2, tab3 = st.tabs(
+    ["CSV Analyzer", "Excel Validation", "EZID Comparer"]
+)
 
 # ===============================
 # CSV TAB
@@ -577,3 +579,187 @@ with tab2:
             error_df.to_csv(index=False),
             "errors.csv"
         )
+
+# ===============================
+# EZID COMPARER TAB
+# ===============================
+with tab3:
+
+    st.subheader("🔍 EZID CSV Comparer")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        old_file = st.file_uploader(
+            "Upload OLD CSV",
+            type=["csv"],
+            key="old_csv"
+        )
+
+    with col2:
+        new_file = st.file_uploader(
+            "Upload NEW CSV",
+            type=["csv"],
+            key="new_csv"
+        )
+
+    if old_file and new_file:
+
+        try:
+
+            old_df = pd.read_csv(old_file, dtype=str)
+            new_df = pd.read_csv(new_file, dtype=str)
+
+            # Find EZID column automatically
+
+            old_ezid_col = next(
+                (c for c in old_df.columns if str(c).strip().upper() == "EZID"),
+                None
+            )
+            
+            new_ezid_col = next(
+                (c for c in new_df.columns if str(c).strip().upper() == "EZID"),
+                None
+            )
+            
+            if old_ezid_col is None:
+                st.error(f"EZID column not found in {old_file.name}")
+                st.stop()
+            
+            if new_ezid_col is None:
+                st.error(f"EZID column not found in {new_file.name}")
+                st.stop()
+            
+            old_ezids = set(
+                old_df[old_ezid_col]
+                .dropna()
+                .astype(str)
+                .str.strip()
+            )
+            
+            new_ezids = set(
+                new_df[new_ezid_col]
+                .dropna()
+                .astype(str)
+                .str.strip()
+            )
+            # -----------------------------------
+            # Comparison
+            # -----------------------------------
+            added = sorted(
+                new_ezids - old_ezids
+            )
+
+            deleted = sorted(
+                old_ezids - new_ezids
+            )
+
+            unchanged = sorted(
+                new_ezids.intersection(old_ezids)
+            )
+
+            # -----------------------------------
+            # Output dataframe
+            # -----------------------------------
+            result_df = pd.concat(
+                [
+                    pd.DataFrame({
+                        "EZID": added,
+                        "Status": "NEW CITY ADDED"
+                    }),
+
+                    pd.DataFrame({
+                        "EZID": deleted,
+                        "Status": "OLD CITY DELETED"
+                    }),
+
+                    pd.DataFrame({
+                        "EZID": unchanged,
+                        "Status": "NO CHANGE"
+                    })
+                ],
+                ignore_index=True
+            )
+
+            st.success("✅ Comparison Completed")
+
+            c1, c2, c3 = st.columns(3)
+
+            c1.metric(
+                "Added",
+                len(added)
+            )
+
+            c2.metric(
+                "Deleted",
+                len(deleted)
+            )
+
+            c3.metric(
+                "No Change",
+                len(unchanged)
+            )
+
+            st.dataframe(
+                result_df,
+                use_container_width=True
+            )
+
+            # -----------------------------------
+            # Output filename
+            # -----------------------------------
+            old_name = old_file.name.replace(
+                ".csv",
+                ""
+            )
+
+            new_name = new_file.name.replace(
+                ".csv",
+                ""
+            )
+
+            output_file_name = (
+                f"{new_name}_Vs_{old_name}.csv"
+            )
+
+            st.download_button(
+                "Download Comparison File",
+                result_df.to_csv(index=False),
+                output_file_name,
+                "text/csv"
+            )
+
+            # -----------------------------------
+            # Comment Generation
+            # -----------------------------------
+            comment = f"""
+MMT City Comparison Completed:
+
+New Cities Added:
+{len(added)}
+
+Old Cities Deleted:
+{len(deleted)}
+
+No Change:
+{len(unchanged)}
+
+Summary:
+• Total Added Cities: {len(added)}
+• Total Deleted Cities: {len(deleted)}
+• Total Unchanged Cities: {len(unchanged)}
+
+Thanks,
+Deepesh Pawar
+"""
+
+            st.subheader("📝 Generated Comment")
+
+            st.text_area(
+                "",
+                comment,
+                height=250
+            )
+
+        except Exception as e:
+            st.error(str(e))
